@@ -19,7 +19,7 @@ class MetasploitModule < Msf::Auxiliary
       'References'  =>
         [
           [ 'URL', 'https://seclists.org/fulldisclosure/2014/May/79' ],
-          [ 'URL', 'http://www.arrisi.com/modems/datasheet/SBG6580/SBG6580_UserGuide.pdf' ],
+          [ 'URL', 'https://web.archive.org/web/20150206092553/http://www.arrisi.com/modems/datasheet/SBG6580/SBG6580_UserGuide.pdf' ],
           [ 'OSVDB', '110555' ]
         ],
       'Author'      => 'Matthew Kienow <mkienow[at]inokii.com>',
@@ -217,8 +217,7 @@ class MetasploitModule < Msf::Auxiliary
       raise $!
     rescue ::Exception => e
       print_error("Unknown error: #{e.class} #{e}")
-      elog("Unknown error: #{e.class} #{e}")
-      elog("Call stack:\n#{e.backtrace.join "\n"}")
+      elog(e)
     ensure
       disconnect_snmp
     end

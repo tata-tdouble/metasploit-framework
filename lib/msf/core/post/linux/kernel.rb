@@ -1,12 +1,11 @@
 # -*- coding: binary -*-
-require 'msf/core/post/common'
 
 module Msf
 class Post
 module Linux
 module Kernel
   include ::Msf::Post::Common
-
+  include Msf::Post::File
   #
   # Returns uname output
   #
@@ -55,21 +54,39 @@ module Kernel
   end
 
   #
+  # Returns the kernel hardware architecture
+  # Based on values from https://en.wikipedia.org/wiki/Uname
+  #
+  # @return [String]
+  #
+  def kernel_arch
+    arch = kernel_hardware
+    return ARCH_X64 if arch == 'x86_64' || arch == 'amd64'
+    return ARCH_AARCH64 if arch == 'aarch64' || arch == 'arm64'
+    return ARCH_ARMLE if arch.start_with?'arm'
+    return ARCH_X86 if arch.end_with?'86'
+    return ARCH_PPC if arch == 'ppc'
+    return ARCH_PPC64 if arch == 'ppc64'
+    return ARCH_PPC64LE if arch == 'ppc64le'
+    return ARCH_MIPS if arch == 'mips'
+    return ARCH_MIPS64 if arch == 'mips64'
+    return ARCH_SPARC if arch == 'sparc'
+    return ARCH_RISCV32LE if arch == 'riscv32'
+    return ARCH_RISCV64LE if arch == 'riscv64'
+    return ARCH_LOONGARCH64 if arch == 'loongarch64'
+    arch
+  end
+
+  #
   # Returns the kernel boot config
   #
   # @return [Array]
   #
   def kernel_config
-    return unless cmd_exec('test -r /boot/config-`uname -r` && echo true').include? 'true'
-
-    output = cmd_exec("cat /boot/config-`uname -r`").to_s.strip
-
+    release = kernel_release
+    output = read_file("/boot/config-#{release}").to_s.strip
     return if output.empty?
-
     config = output.split("\n").map(&:strip).reject(&:empty?).reject {|i| i.start_with? '#'}
-
-    return if config.empty?
-
     config
   rescue
     raise 'Could not retrieve kernel config'
@@ -81,7 +98,7 @@ module Kernel
   # @return [Array]
   #
   def kernel_modules
-    cmd_exec('cat /proc/modules').to_s.scan(/^[^ ]+/)
+    read_file('/proc/modules').to_s.scan(/^[^ ]+/)
   rescue
     raise 'Could not determine kernel modules'
   end
@@ -92,7 +109,7 @@ module Kernel
   # @return [Array]
   #
   def cpu_flags
-    cpuinfo = cmd_exec('cat /proc/cpuinfo').to_s
+    cpuinfo = read_file('/proc/cpuinfo').to_s
 
     return unless cpuinfo.include? 'flags'
 
@@ -151,8 +168,8 @@ module Kernel
   # @return [Boolean]
   #
   def userns_enabled?
-    return false if cmd_exec('cat /proc/sys/user/max_user_namespaces').to_s.strip.eql? '0'
-    return false if cmd_exec('cat /proc/sys/kernel/unprivileged_userns_clone').to_s.strip.eql? '0'
+    return false if read_file('/proc/sys/user/max_user_namespaces').to_s.strip.eql? '0'
+    return false if read_file('/proc/sys/kernel/unprivileged_userns_clone').to_s.strip.eql? '0'
     true
   rescue
     raise 'Could not determine userns status'
@@ -164,7 +181,7 @@ module Kernel
   # @return [Boolean]
   #
   def aslr_enabled?
-    aslr = cmd_exec('cat /proc/sys/kernel/randomize_va_space').to_s.strip
+    aslr = read_file('/proc/sys/kernel/randomize_va_space').to_s.strip
     (aslr.eql?('1') || aslr.eql?('2'))
   rescue
     raise 'Could not determine ASLR status'
@@ -176,7 +193,7 @@ module Kernel
   # @return [Boolean]
   #
   def exec_shield_enabled?
-    exec_shield = cmd_exec('cat /proc/sys/kernel/exec-shield').to_s.strip
+    exec_shield = read_file('/proc/sys/kernel/exec-shield').to_s.strip
     (exec_shield.eql?('1') || exec_shield.eql?('2'))
   rescue
     raise 'Could not determine exec-shield status'
@@ -188,7 +205,8 @@ module Kernel
   # @return [Boolean]
   #
   def unprivileged_bpf_disabled?
-    cmd_exec('cat /proc/sys/kernel/unprivileged_bpf_disabled').to_s.strip.eql? '1' 
+    unprivileged_bpf_disabled = read_file('/proc/sys/kernel/unprivileged_bpf_disabled').to_s.strip
+    return (unprivileged_bpf_disabled == '1' || unprivileged_bpf_disabled == '2')
   rescue
     raise 'Could not determine kernel.unprivileged_bpf_disabled status'
   end
@@ -199,7 +217,7 @@ module Kernel
   # @return [Boolean]
   #
   def kptr_restrict?
-    cmd_exec('cat /proc/sys/kernel/kptr_restrict').to_s.strip.eql? '1' 
+    read_file('/proc/sys/kernel/kptr_restrict').to_s.strip.eql? '1'
   rescue
     raise 'Could not determine kernel.kptr_restrict status'
   end
@@ -210,7 +228,7 @@ module Kernel
   # @return [Boolean]
   #
   def dmesg_restrict?
-    cmd_exec('cat /proc/sys/kernel/dmesg_restrict').to_s.strip.eql? '1' 
+    read_file('/proc/sys/kernel/dmesg_restrict').to_s.strip.eql? '1'
   rescue
     raise 'Could not determine kernel.dmesg_restrict status'
   end
@@ -221,7 +239,7 @@ module Kernel
   # @return [Integer]
   #
   def mmap_min_addr
-    mmap_min_addr = cmd_exec('cat /proc/sys/vm/mmap_min_addr').to_s.strip
+    mmap_min_addr = read_file('/proc/sys/vm/mmap_min_addr').to_s.strip
     return 0 unless mmap_min_addr =~ /\A\d+\z/
     mmap_min_addr
   rescue
@@ -232,7 +250,7 @@ module Kernel
   # Returns true if Linux Kernel Runtime Guard (LKRG) kernel module is installed
   #
   def lkrg_installed?
-    cmd_exec('test -d /proc/sys/lkrg && echo true').to_s.strip.include? 'true'
+    directory?('/proc/sys/lkrg')
   rescue
     raise 'Could not determine LKRG status'
   end
@@ -241,7 +259,7 @@ module Kernel
   # Returns true if grsecurity is installed
   #
   def grsec_installed?
-    cmd_exec('test -c /dev/grsec && echo true').to_s.strip.include? 'true'
+    File.exists?('/dev/grsec') && File.chardev?('/dev/grsec')
   rescue
     raise 'Could not determine grsecurity status'
   end
@@ -250,7 +268,7 @@ module Kernel
   # Returns true if PaX is installed
   #
   def pax_installed?
-    cmd_exec('test -x /sbin/paxctl && echo true').to_s.strip.include? 'true'
+    read_file('/proc/self/status').to_s.include? 'PaX:'
   rescue
     raise 'Could not determine PaX status'
   end
@@ -289,7 +307,7 @@ module Kernel
   # @return [Boolean]
   #
   def yama_installed?
-    ptrace_scope = cmd_exec('cat /proc/sys/kernel/yama/ptrace_scope').to_s.strip
+    ptrace_scope = read_file('/proc/sys/kernel/yama/ptrace_scope').to_s.strip
     return true if ptrace_scope =~ /\A\d\z/
     false
   rescue
@@ -303,7 +321,7 @@ module Kernel
   #
   def yama_enabled?
     return false unless yama_installed?
-    !cmd_exec('cat /proc/sys/kernel/yama/ptrace_scope').to_s.strip.eql? '0'
+    !read_file('/proc/sys/kernel/yama/ptrace_scope').to_s.strip.eql? '0'
   rescue
     raise 'Could not determine Yama status'
   end

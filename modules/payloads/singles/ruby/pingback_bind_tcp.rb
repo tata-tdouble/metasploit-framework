@@ -1,8 +1,3 @@
-require 'msf/core/handler/bind_tcp'
-require 'msf/core/payload/ruby'
-
-require 'msf/base/sessions/pingback'
-require 'msf/core/payload/pingback'
 
 module MetasploitModule
 
@@ -27,7 +22,7 @@ module MetasploitModule
     ))
   end
 
-  def generate
+  def generate(_opts = {})
     #return prepends(ruby_string)
     return ruby_string
   end

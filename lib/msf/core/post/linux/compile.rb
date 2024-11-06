@@ -1,8 +1,4 @@
 # -*- coding: binary -*-
-require 'msf/core/post/common'
-require 'msf/core/post/file'
-require 'msf/core/post/unix'
-
 module Msf
 class Post
 module Linux
@@ -15,40 +11,68 @@ module Compile
     super
     register_options( [
       OptEnum.new('COMPILE', [true, 'Compile on target', 'Auto', ['Auto', 'True', 'False']]),
+      OptEnum.new('COMPILER', [true, 'Compiler to use on target', 'Auto', ['Auto', 'gcc', 'clang']]),
     ], self.class)
   end
 
-  def live_compile?
-    return false unless datastore['COMPILE'].eql?('Auto') || datastore['COMPILE'].eql?('True')
-
+  def get_compiler
     if has_gcc?
-      vprint_good 'gcc is installed'
-      return true
-    end
-
-    unless datastore['COMPILE'].eql? 'Auto'
-      fail_with Failure::BadConfig, 'gcc is not installed. Set COMPILE False to upload a pre-compiled executable.'
+      return 'gcc'
+    elsif has_clang?
+      return 'clang'
+    else
+      return nil
     end
   end
 
-  def upload_and_compile(path, data, gcc_args='')
+  def live_compile?
+    return false unless %w{ Auto True }.include?(datastore['COMPILE'])
+
+    if datastore['COMPILER'] == 'gcc' && has_gcc?
+      vprint_good 'gcc is installed'
+      return true
+    elsif datastore['COMPILER'] == 'clang' && has_clang?
+      vprint_good 'clang is installed'
+      return true
+    elsif datastore['COMPILER'] == 'Auto' && get_compiler.present?
+      return true
+    end
+
+    unless datastore['COMPILE'] == 'Auto'
+      fail_with Module::Failure::BadConfig, "#{datastore['COMPILER']} is not installed. Set COMPILE False to upload a pre-compiled executable."
+    end
+
+    false
+  end
+
+  def upload_and_compile(path, data, compiler_args='')
     write_file "#{path}.c", strip_comments(data)
 
-    gcc_cmd = "gcc -o #{path} #{path}.c"
-    if session.type.eql? 'shell'
-      gcc_cmd = "PATH=\"$PATH:/usr/bin/\" #{gcc_cmd}"
+    compiler = datastore['COMPILER']
+    if datastore['COMPILER'] == 'Auto'
+      compiler = get_compiler
+      fail_with(Module::Failure::BadConfig, "Unable to find a compiler on the remote target.") unless compiler.present?
     end
 
-    unless gcc_args.to_s.blank?
-      gcc_cmd << " #{gcc_args}"
+    compiler_cmd = "#{compiler} -o '#{path}' '#{path}.c'"
+    if session.type == 'shell'
+      compiler_cmd = "PATH=\"$PATH:/usr/bin/\" #{compiler_cmd}"
     end
 
-    output = cmd_exec gcc_cmd
+    unless compiler_args.to_s.blank?
+      compiler_cmd << " #{compiler_args}"
+    end
+
+    verification_token = Rex::Text.rand_text_alphanumeric(8)
+    success = cmd_exec("#{compiler_cmd} && echo #{verification_token}")&.include?(verification_token)
+
     rm_f "#{path}.c"
 
-    unless output.blank?
-      print_error output
-      fail_with Failure::Unknown, "#{path}.c failed to compile. Set COMPILE False to upload a pre-compiled executable."
+    unless success
+      message = "#{path}.c failed to compile."
+      # don't mention the COMPILE option if it was deregistered
+      message << ' Set COMPILE to False to upload a pre-compiled executable.' if options.include?('COMPILE')
+      fail_with Module::Failure::BadConfig, message
     end
 
     chmod path

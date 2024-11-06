@@ -4,9 +4,6 @@
 ##
 
 
-require 'msf/core/handler/reverse_tcp'
-require 'msf/base/sessions/command_shell'
-require 'msf/base/sessions/command_shell_options'
 
 module MetasploitModule
 
@@ -29,7 +26,7 @@ module MetasploitModule
     ))
   end
 
-def generate_stage
+def generate(opts={})
       # tcp port conversion
       port_order = ([1,0]) # byte ordering
       tcp_port = [datastore['LPORT'].to_i].pack('n*').unpack('H*').to_s.scan(/../) # converts user input into integer and unpacked into a string array

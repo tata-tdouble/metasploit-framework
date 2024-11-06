@@ -19,7 +19,8 @@ module Msf::DBManager::Web
   #
   def report_web_form(opts)
     return if not active
-  ::ActiveRecord::Base.connection_pool.with_connection {
+  ::ApplicationRecord.connection_pool.with_connection {
+    opts = opts.clone() # protect the original caller's opts
     wspace = Msf::Util::DBManager.process_opts_workspace(opts, framework)
 
     path    = opts[:path]
@@ -70,7 +71,7 @@ module Msf::DBManager::Web
       form.query       = quer
     end
 
-    msf_import_timestamps(opts, form)
+    msf_assign_timestamps(opts, form)
     form.save!
     ret[:web_form] = form
   }
@@ -106,7 +107,8 @@ module Msf::DBManager::Web
   #
   def report_web_page(opts)
     return if not active
-  ::ActiveRecord::Base.connection_pool.with_connection {
+  ::ApplicationRecord.connection_pool.with_connection {
+    opts = opts.clone() # protect the original caller's opts
     wspace = Msf::Util::DBManager.process_opts_workspace(opts, framework)
 
     path    = opts[:path]
@@ -152,7 +154,7 @@ module Msf::DBManager::Web
 
     page.location = opts[:location] if opts[:location]
 
-    msf_import_timestamps(opts, page)
+    msf_assign_timestamps(opts, page)
     page.save!
 
     ret[:web_page] = page
@@ -187,7 +189,8 @@ module Msf::DBManager::Web
   #
   def report_web_site(opts)
     return if not active
-  ::ActiveRecord::Base.connection_pool.with_connection { |conn|
+  ::ApplicationRecord.connection_pool.with_connection { |conn|
+    opts = opts.clone() # protect the original caller's opts
     wspace = Msf::Util::DBManager.process_opts_workspace(opts, framework)
     vhost  = opts.delete(:vhost)
 
@@ -255,7 +258,7 @@ module Msf::DBManager::Web
     site.options = opts[:options] if opts[:options]
 
     # XXX:
-    msf_import_timestamps(opts, site)
+    msf_assign_timestamps(opts, site)
     site.save!
 
     ret[:web_site] = site
@@ -288,7 +291,8 @@ module Msf::DBManager::Web
   #
   def report_web_vuln(opts)
     return if not active
-  ::ActiveRecord::Base.connection_pool.with_connection {
+  ::ApplicationRecord.connection_pool.with_connection {
+    opts = opts.clone() # protect the original caller's opts
     wspace = Msf::Util::DBManager.process_opts_workspace(opts, framework)
 
     path    = opts[:path]
@@ -362,7 +366,7 @@ module Msf::DBManager::Web
     vuln.payload = payload
     vuln.owner   = owner
 
-    msf_import_timestamps(opts, vuln)
+    msf_assign_timestamps(opts, vuln)
     vuln.save!
 
     ret[:web_vuln] = vuln

@@ -1,7 +1,5 @@
 # -*- coding: binary -*-
 
-require 'msf/core/payload/transport_config'
-require 'msf/core/payload/uuid/options'
 require 'base64'
 require 'securerandom'
 
@@ -10,6 +8,20 @@ module Msf
     module MettleConfig
 
       include Msf::Payload::TransportConfig
+
+      def initialize(info = {})
+        super
+
+        register_advanced_options(
+          [
+            OptBool.new(
+              'MeterpreterTryToFork',
+              'Fork a new process if the functionality is available',
+              default: false
+            )
+          ]
+        )
+      end
 
       def generate_uri(opts={})
         ds = opts[:datastore] || datastore
@@ -67,18 +79,12 @@ module Msf
       def generate_config(opts={})
         ds = opts[:datastore] || datastore
 
+        opts[:background] = ds['MeterpreterTryToFork'] ? 1 : 0
+
         if ds['PayloadProcessCommandLine'] != ''
           opts[:name] ||= ds['PayloadProcessCommandLine']
         end
 
-        if ds['RemoteMeterpreterDebugFile'] != ''
-          opts[:log_file] ||= ds['RemoteMeterpreterDebugFile']
-        end
-
-        log_level = ds['MeterpreterDebugLevel'].to_i
-        log_level = 0 if log_level < 0
-        log_level = 3 if log_level > 3
-        opts[:debug] = log_level
         opts[:uuid] ||= generate_payload_uuid
 
         case opts[:scheme]
@@ -99,7 +105,7 @@ module Msf
         end
         opts[:session_guid] = Base64.encode64(guid).strip
 
-        opts.slice(:uuid, :session_guid, :uri, :debug, :log_file, :name)
+        opts.slice(:uuid, :session_guid, :uri, :debug, :log_file, :name, :background)
       end
 
       # Stage encoding is not safe for Mettle (doesn't apply to stageless)

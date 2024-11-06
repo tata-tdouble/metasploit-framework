@@ -36,8 +36,6 @@ class MetasploitModule < Msf::Auxiliary
       OptString.new('CPQLOGIN', [true, 'The homepage of the login', '/cpqlogin.htm']),
       OptString.new('LOGIN_REDIRECT', [true, 'The URL to redirect to', '/cpqlogin'])
     ])
-
-    deregister_options('PASSWORD_SPRAY')
   end
 
   def get_version(res)
@@ -50,7 +48,7 @@ class MetasploitModule < Msf::Auxiliary
 
   def is_version_tested?(version)
     # As of Sep 4 2014, version 7.4 is the latest and that's the last one we've tested
-    if Gem::Version.new(version) < Gem::Version.new('7.5')
+    if Rex::Version.new(version) < Rex::Version.new('7.5')
       return true
     end
 
@@ -71,14 +69,9 @@ class MetasploitModule < Msf::Auxiliary
   end
 
   def init_loginscanner(ip)
-    @cred_collection = Metasploit::Framework::CredentialCollection.new(
-      blank_passwords: datastore['BLANK_PASSWORDS'],
-      pass_file:       datastore['PASS_FILE'],
-      password:        datastore['HttpPassword'],
-      user_file:       datastore['USER_FILE'],
-      userpass_file:   datastore['USERPASS_FILE'],
-      username:        datastore['HttpUsername'],
-      user_as_pass:    datastore['USER_AS_PASS']
+    @cred_collection = build_credential_collection(
+      username: datastore['HttpUsername'],
+      password: datastore['HttpPassword']
     )
 
     @scanner = Metasploit::Framework::LoginScanner::Smh.new(
@@ -204,4 +197,3 @@ class MetasploitModule < Msf::Auxiliary
     bruteforce(ip)
   end
 end
-

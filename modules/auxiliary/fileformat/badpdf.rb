@@ -62,7 +62,7 @@ class MetasploitModule < Msf::Auxiliary
     end
 
     # Read in contents of file
-    content = File.read(datastore['PDFINJECT'])
+    content = File.binread(datastore['PDFINJECT'])
 
     # Check for place holder - below ..should.. cover most scenarios.
     newdata = ''
@@ -86,7 +86,7 @@ class MetasploitModule < Msf::Auxiliary
     File.open(newfilename, 'wb') { |file| file.write(newdata) }
     # Check file exists and display path or error message
     if File.exist?(newfilename)
-      print_good("Malicious file writen to: #{newfilename}")
+      print_good("Malicious file written to: #{newfilename}")
     else
       print_error 'Something went wrong creating malicious PDF file'
     end

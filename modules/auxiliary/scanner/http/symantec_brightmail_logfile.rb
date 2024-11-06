@@ -24,7 +24,7 @@ class MetasploitModule < Msf::Auxiliary
           ['EDB', '23110'],
           ['OSVDB', '88165'],
           ['BID', '56789'],
-          ['URL', 'http://www.symantec.com/security_response/securityupdates/detail.jsp?fid=security_advisory&pvid=security_advisory&year=2012&suid=20120827_00']
+          ['URL', 'https://www.broadcom.com/support/security-center/securityupdates/detail?fid=security_advisory&pvid=security_advisory&suid=20120827_00&year=2012']
         ],
       'Author'         =>
         [
@@ -32,7 +32,7 @@ class MetasploitModule < Msf::Auxiliary
           'sinn3r'
         ],
       'License'        => MSF_LICENSE,
-      'DisclosureDate' => "Nov 30 2012"
+      'DisclosureDate' => '2012-11-30'
     ))
 
     register_options(

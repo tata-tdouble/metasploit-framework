@@ -23,7 +23,7 @@ module Msf::DBManager::ModuleCache
   # +'ILIKE'+
   #
   # @param values [Set<String>, #each] a list of strings.
-  # @return [Arrray<String>] strings wrapped like %<string>%
+  # @return [Array<String>] strings wrapped like %<string>%
   def match_values(values)
     values.collect { |value| "%#{value}%" }
   end
@@ -122,10 +122,10 @@ module Msf::DBManager::ModuleCache
   #
   # @return [void]
   def purge_all_module_details
-    return if not self.migrated
+    return unless self.migrated
     return if self.modules_caching
 
-    ::ActiveRecord::Base.connection_pool.with_connection do
+    ::ApplicationRecord.connection_pool.with_connection do
       Mdm::Module::Detail.destroy_all
     end
   end
@@ -139,7 +139,7 @@ module Msf::DBManager::ModuleCache
   def remove_module_details(mtype, refname)
     return if not self.migrated
 
-    ActiveRecord::Base.connection_pool.with_connection do
+    ApplicationRecord.connection_pool.with_connection do
       Mdm::Module::Detail.where(:mtype => mtype, :refname => refname).destroy_all
     end
   end
@@ -195,7 +195,7 @@ module Msf::DBManager::ModuleCache
       end
     end
 
-    ActiveRecord::Base.connection_pool.with_connection do
+    ApplicationRecord.connection_pool.with_connection do
       @query = Mdm::Module::Detail.all
 
       @archs    = Set.new
@@ -261,7 +261,7 @@ module Msf::DBManager::ModuleCache
     self.modules_cached  = false
     self.modules_caching = true
 
-    ActiveRecord::Base.connection_pool.with_connection do
+    ApplicationRecord.connection_pool.with_connection do
 
       refresh = []
       skip_reference_name_set_by_module_type = Hash.new { |hash, module_type|
@@ -307,8 +307,8 @@ module Msf::DBManager::ModuleCache
           next if not obj
           begin
             update_module_details(obj)
-          rescue ::Exception
-            elog("Error updating module details for #{obj.fullname}: #{$!.class} #{$!}")
+          rescue ::Exception => e
+            elog("Error updating module details for #{obj.fullname}", error: e)
           end
         end
       end
@@ -331,7 +331,7 @@ module Msf::DBManager::ModuleCache
   def update_module_details(module_instance)
     return if not self.migrated
 
-    ActiveRecord::Base.connection_pool.with_connection do
+    ApplicationRecord.connection_pool.with_connection do
       info = module_to_details_hash(module_instance)
       bits = info.delete(:bits) || []
       module_detail = Mdm::Module::Detail.create!(info)

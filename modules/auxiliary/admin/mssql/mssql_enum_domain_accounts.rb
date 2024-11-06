@@ -3,8 +3,6 @@
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core/exploit/mssql_commands'
-
 class MetasploitModule < Msf::Auxiliary
   include Msf::Exploit::Remote::MSSQL
   include Msf::Auxiliary::Report
@@ -25,7 +23,7 @@ class MetasploitModule < Msf::Auxiliary
           'antti <antti.rantasaari[at]netspi.com>'
         ],
       'License'     => MSF_LICENSE,
-      'References'  => [[ 'URL','http://msdn.microsoft.com/en-us/library/ms174427.aspx']]
+      'References'  => [[ 'URL','https://docs.microsoft.com/en-us/sql/t-sql/functions/suser-sname-transact-sql']]
     ))
 
     register_options(
@@ -108,16 +106,16 @@ class MetasploitModule < Msf::Auxiliary
 
     # Create output file
     this_service = report_service(
-      :host  => rhost,
-      :port => rport,
+      :host  => mssql_client.peerhost,
+      :port => mssql_client.peerport,
       :name => 'mssql',
       :proto => 'tcp'
     )
-    file_name = "#{datastore['RHOST']}-#{datastore['RPORT']}_windows_domain_accounts.csv"
+    file_name = "#{mssql_client.peerhost}-#{mssql_client.peerport}_windows_domain_accounts.csv"
     path = store_loot(
       'mssql.domain.accounts',
       'text/plain',
-      datastore['RHOST'],
+      mssql_client.peerhost,
       windows_domain_login_table.to_csv,
       file_name,
       'Domain Users enumerated through SQL Server',

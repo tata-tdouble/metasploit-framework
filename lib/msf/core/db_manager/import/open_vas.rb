@@ -1,4 +1,3 @@
-require 'rex/parser/openvas_nokogiri'
 
 module Msf::DBManager::Import::OpenVAS
   def import_openvas_noko_stream(args={}, &block)
@@ -16,7 +15,7 @@ module Msf::DBManager::Import::OpenVAS
     if Rex::Parser.nokogiri_loaded
       parser = "Nokogiri v#{::Nokogiri::VERSION}"
       noko_args = args.dup
-      noko_args[:wspace] = wspace
+      noko_args[:workspace] = wspace
       if block
         yield(:parser, parser)
         import_openvas_noko_stream(noko_args) {|type, data| yield type,data}

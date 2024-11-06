@@ -1,11 +1,9 @@
 # -*- coding: binary -*-
 require 'rex/io/stream_abstraction'
 require 'rex/sync/ref'
-require 'rex/payloads/meterpreter/uri_checksum'
-require 'rex/post/meterpreter'
+
+require 'rex/post/meterpreter/core_ids'
 require 'rex/socket/x509_certificate'
-require 'msf/core/payload/windows/verify_ssl'
-require 'rex/user_agent'
 require 'uri'
 
 module Msf
@@ -20,6 +18,7 @@ module ReverseHttp
 
   include Msf::Handler
   include Msf::Handler::Reverse
+  include Msf::Handler::Reverse::Comm
   include Rex::Payloads::Meterpreter::UriChecksum
   include Msf::Payload::Windows::VerifySsl
 
@@ -70,8 +69,9 @@ module ReverseHttp
         ),
         OptString.new('HttpUserAgent',
           'The user-agent that the payload should use for communication',
-          default: Rex::UserAgent.shortest,
-          aliases: ['MeterpreterUserAgent']
+          default: Rex::UserAgent.random,
+          aliases: ['MeterpreterUserAgent'],
+          max_length: Rex::Payloads::Meterpreter::Config::UA_SIZE - 1
         ),
         OptString.new('HttpServerName',
           'The server header that the handler will send in response to requests',
@@ -158,6 +158,14 @@ module ReverseHttp
     end
   end
 
+  def comm_string
+    if self.service.listener.nil?
+      "(setting up)"
+    else
+      via_string(self.service.listener.client) if self.service.listener.respond_to?(:client)
+    end
+  end
+
   # Use the #refname to determine whether this handler uses SSL or not
   #
   def ssl?
@@ -202,6 +210,7 @@ module ReverseHttp
     local_addr = nil
     local_port = bind_port
     ex = false
+    comm = select_comm
 
     # Start the HTTPS server service on this host/port
     bind_addresses.each do |ip|
@@ -212,8 +221,8 @@ module ReverseHttp
             'Msf'        => framework,
             'MsfExploit' => self,
           },
-          nil,
-          (ssl?) ? datastore['HandlerSSLCert'] : nil
+          comm,
+          (ssl?) ? datastore['HandlerSSLCert'] : nil, nil, nil, datastore['SSLVersion']
         )
         local_addr = ip
       rescue
@@ -251,9 +260,8 @@ module ReverseHttp
   def stop_handler
     if self.service
       self.service.remove_resource((luri + "/").gsub("//", "/"))
-      if self.service.resources.empty? && self.sessions == 0
-        Rex::ServiceManager.stop_service(self.service)
-      end
+      self.service.deref
+      self.service = nil
     end
   end
 
@@ -325,19 +333,20 @@ protected
       request_summary = "#{conn_id} with UA '#{req.headers['User-Agent']}'"
 
       # Validate known UUIDs for all requests if IgnoreUnknownPayloads is set
-      if datastore['IgnoreUnknownPayloads'] && ! framework.db.get_payload({uuid: uuid.puid_hex})
+      if framework.db.active
+        db_uuid = framework.db.payloads({ uuid: uuid.puid_hex }).first
+      else
+        print_warning('Without a database connected that payload UUID tracking will not work!')
+      end
+      if datastore['IgnoreUnknownPayloads'] && !db_uuid
         print_status("Ignoring unknown UUID: #{request_summary}")
         info[:mode] = :unknown_uuid
       end
 
       # Validate known URLs for all session init requests if IgnoreUnknownPayloads is set
       if datastore['IgnoreUnknownPayloads'] && info[:mode].to_s =~ /^init_/
-        payload_info = {
-            uuid: uuid.puid_hex,
-        }
-        payload = framework.db.get_payload(payload_info)
-        allowed_urls = payload ? payload.urls : []
-        unless allowed_urls.include?(req.relative_resource)
+        allowed_urls = db_uuid ? db_uuid['urls'] : []
+        unless allowed_urls && allowed_urls.include?(req.relative_resource.chomp('/'))
           print_status("Ignoring unknown UUID URL: #{request_summary}")
           info[:mode] = :unknown_uuid_url
         end
@@ -366,8 +375,7 @@ protected
         # was generated on the fly. This means we form a new session for each.
 
         # Hurl a TLV back at the caller, and ignore the response
-        pkt = Rex::Post::Meterpreter::Packet.new(Rex::Post::Meterpreter::PACKET_TYPE_RESPONSE,
-                                                 'core_patch_url')
+        pkt = Rex::Post::Meterpreter::Packet.new(Rex::Post::Meterpreter::PACKET_TYPE_RESPONSE, Rex::Post::Meterpreter::COMMAND_ID_CORE_PATCH_URL)
         pkt.add_tlv(Rex::Post::Meterpreter::TLV_TYPE_TRANS_URL, conn_id + "/")
         resp.body = pkt.to_r
 
@@ -380,14 +388,20 @@ protected
           begin
             blob = self.generate_stage(url: url, uuid: uuid, uri: conn_id)
             blob = encode_stage(blob) if self.respond_to?(:encode_stage)
+            # remove this when we make http payloads prepend stage sizes by default
+            if defined?(read_stage_size?) && read_stage_size?
+              print_status("Appending Stage Size For HTTP[S]...")
+              blob = [ blob.length ].pack('V') + blob
+            end
 
             print_status("Staging #{uuid.arch} payload (#{blob.length} bytes) ...")
 
             resp['Content-Type'] = 'application/octet-stream'
             resp.body = blob
 
-          rescue NoMethodError
-            print_error("Staging failed. This can occur when stageless listeners are used with staged payloads.")
+          rescue NoMethodError => e
+            print_error('Staging failed. This can occur when stageless listeners are used with staged payloads.')
+            elog('Staging failed. This can occur when stageless listeners are used with staged payloads.', error: e)
             return
           end
         end

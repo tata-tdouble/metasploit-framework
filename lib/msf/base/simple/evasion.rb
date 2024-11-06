@@ -1,5 +1,4 @@
 # -*- coding: binary -*-
-require 'msf/base'
 
 module Msf
 module Simple
@@ -14,7 +13,7 @@ module Evasion
     begin
       # Clone the module to prevent changes to the original instance
 
-      Msf::Simple::Framework.simplify_module( evasion, false )
+      Msf::Simple::Framework.simplify_module(evasion)
       yield(evasion) if block_given?
 
       # Import options from the OptionStr or Option hash.
@@ -22,7 +21,7 @@ module Evasion
 
       # Make sure parameters are valid.
       if (opts['Payload'] == nil)
-        raise MissingPayloadError.new, caller
+        raise MissingPayloadError.new, 'A payload has not been selected.', caller
       end
 
       # Verify the options
@@ -92,11 +91,13 @@ module Evasion
     rescue ::Interrupt
       evasion.error = $!
       raise $!
+    rescue ::Msf::OptionValidateError => e
+      evasion.error = e
+      ::Msf::Ui::Formatter::OptionValidateError.print_error(evasion, e)
     rescue ::Exception => e
       evasion.error = e
       evasion.print_error("evasion failed: #{e}")
-      elog("Evasion failed (#{evasion.refname}): #{e}", 'core', LEV_0)
-      dlog("Call stack:\n#{e.backtrace.join("\n")}", 'core', LEV_3)
+      elog("Evasion failed (#{evasion.refname})", error: e)
     end
 
     nil

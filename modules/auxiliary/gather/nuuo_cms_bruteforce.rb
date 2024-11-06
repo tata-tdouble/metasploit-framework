@@ -18,7 +18,7 @@ class MetasploitModule < Msf::Auxiliary
         heap address of the user object instead of a real session number when a user logs
         in. This can be used to reduce the keyspace for the session number from 10 million
         to 1.2 million, and with a bit of analysis it can be guessed in less than 500k tries.
-        This module does exactly that - it uses a computed occurence table to try the most common
+        This module does exactly that - it uses a computed occurrence table to try the most common
         combinations up to 1.2 million to try to guess a valid user session.
         This session number can then be used to achieve code execution or download files - see
         the other Nuuo CMS auxiliary and exploit modules.
@@ -32,13 +32,13 @@ class MetasploitModule < Msf::Auxiliary
       'References'     =>
         [
           [ 'CVE', '2018-17888' ],
-          [ 'URL', 'https://ics-cert.us-cert.gov/advisories/ICSA-18-284-02' ],
+          [ 'URL', 'https://www.cisa.gov/uscert/ics/advisories/ICSA-18-284-02' ],
           [ 'URL', 'https://seclists.org/fulldisclosure/2019/Jan/51' ],
-          [ 'URL', 'https://raw.githubusercontent.com/pedrib/PoC/master/advisories/nuuo-cms-ownage.txt' ]
+          [ 'URL', 'https://raw.githubusercontent.com/pedrib/PoC/master/advisories/NUUO/nuuo-cms-ownage.txt' ]
 
         ],
       'Platform'       => ['win'],
-      'DisclosureDate'  => 'Oct 11 2018'))
+      'DisclosureDate'  => '2018-10-11'))
     deregister_options('SESSION', 'USERNAME', 'PASSWORD')
   end
 

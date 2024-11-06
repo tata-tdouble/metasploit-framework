@@ -95,7 +95,7 @@ RSpec.shared_examples_for 'Msf::DBManager::Import::MetasploitFramework::XML' do
 
   context 'CONSTANTS' do
     it 'should define MSF_WEB_PAGE_TEXT_ELEMENT_NAMES in any order' do
-      described_class::MSF_WEB_PAGE_TEXT_ELEMENT_NAMES =~ [
+      expected_keys = [
           'auth',
           'body',
           'code',
@@ -104,14 +104,15 @@ RSpec.shared_examples_for 'Msf::DBManager::Import::MetasploitFramework::XML' do
           'location',
           'mtime'
       ]
+      expect(described_class::MSF_WEB_PAGE_TEXT_ELEMENT_NAMES).to match_array(expected_keys)
     end
 
     it 'should define MSF_WEB_TEXT_ELEMENT_NAMES in any order' do
-      described_class::MSF_WEB_TEXT_ELEMENT_NAMES =~ msf_web_text_element_names
+      expect(described_class::MSF_WEB_TEXT_ELEMENT_NAMES).to match_array(msf_web_text_element_names)
     end
 
     it 'should define MSF_WEB_VULN_TEXT_ELEMENT_NAMES in any order' do
-      described_class::MSF_WEB_VULN_TEXT_ELEMENT_NAMES =~ [
+      expected_keys = [
           'blame',
           'category',
           'confidence',
@@ -122,6 +123,7 @@ RSpec.shared_examples_for 'Msf::DBManager::Import::MetasploitFramework::XML' do
           'proof',
           'risk'
       ]
+      expect(described_class::MSF_WEB_VULN_TEXT_ELEMENT_NAMES).to match_array(expected_keys)
     end
   end
 
@@ -1016,7 +1018,7 @@ RSpec.shared_examples_for 'Msf::DBManager::Import::MetasploitFramework::XML' do
 
   context '#import_msf_xml' do
     let(:workspace) do
-      double(':workspace')
+      FactoryBot.create(:mdm_workspace)
     end
 
     let(:data) do
@@ -1024,7 +1026,6 @@ RSpec.shared_examples_for 'Msf::DBManager::Import::MetasploitFramework::XML' do
     end
 
     subject(:import_msf_xml) do
-      expect(workspace).to receive(:name) { 'default' }
       db_manager.import_msf_xml({:data => data, :workspace => workspace})
     end
 
@@ -1032,6 +1033,22 @@ RSpec.shared_examples_for 'Msf::DBManager::Import::MetasploitFramework::XML' do
       expect(db_manager).to receive(:check_msf_xml_version!).and_call_original
 
       import_msf_xml
+    end
+
+    context 'with host elements present' do
+      let(:data) do
+        File.binread(File.join(FILE_FIXTURES_PATH, 'import', 'basic_host_data_set.xml'))
+      end
+
+      it 'import the host' do
+        expect {
+          import_msf_xml
+        }.to(
+          change(Mdm::Host, :count).by(1)
+           .and change(Mdm::Service, :count).by(1)
+           .and change(Mdm::Note, :count).by(1)
+        )
+      end
     end
 
     context 'with web_forms/web_form elements' do

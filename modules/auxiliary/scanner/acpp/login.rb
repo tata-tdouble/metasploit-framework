@@ -3,7 +3,6 @@
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'rex/proto/acpp'
 require 'metasploit/framework/credential_collection'
 require 'metasploit/framework/login_scanner/acpp'
 
@@ -40,7 +39,7 @@ class MetasploitModule < Msf::Auxiliary
       # there is no username, so remove all of these options
       'DB_ALL_USERS',
       'DB_ALL_CREDS',
-      'PASSWORD_SPRAY',
+      'DB_SKIP_EXISTING',
       'USERNAME',
       'USERPASS_FILE',
       'USER_FILE',
@@ -53,33 +52,33 @@ class MetasploitModule < Msf::Auxiliary
   def run_host(ip)
     vprint_status("#{ip}:#{rport} - Starting ACPP login sweep")
 
-    cred_collection = Metasploit::Framework::CredentialCollection.new(
+    cred_collection = Metasploit::Framework::PrivateCredentialCollection.new(
       blank_passwords: datastore['BLANK_PASSWORDS'],
       pass_file: datastore['PASS_FILE'],
-      password: datastore['PASSWORD'],
-      username: '<BLANK>'
+      password: datastore['PASSWORD']
     )
-
     cred_collection = prepend_db_passwords(cred_collection)
 
     scanner = Metasploit::Framework::LoginScanner::ACPP.new(
-      host: ip,
-      port: rport,
-      proxies: datastore['PROXIES'],
-      cred_details: cred_collection,
-      stop_on_success: datastore['STOP_ON_SUCCESS'],
-      bruteforce_speed: datastore['BRUTEFORCE_SPEED'],
-      connection_timeout: datastore['ConnectTimeout'],
-      max_send_size: datastore['TCP::max_send_size'],
-      send_delay: datastore['TCP::send_delay'],
-      framework: framework,
-      framework_module: self,
-      ssl: datastore['SSL'],
-      ssl_version: datastore['SSLVersion'],
-      ssl_verify_mode: datastore['SSLVerifyMode'],
-      ssl_cipher: datastore['SSLCipher'],
-      local_port: datastore['CPORT'],
-      local_host: datastore['CHOST']
+      configure_login_scanner(
+        host: ip,
+        port: rport,
+        proxies: datastore['PROXIES'],
+        cred_details: cred_collection,
+        stop_on_success: datastore['STOP_ON_SUCCESS'],
+        bruteforce_speed: datastore['BRUTEFORCE_SPEED'],
+        connection_timeout: datastore['ConnectTimeout'],
+        max_send_size: datastore['TCP::max_send_size'],
+        send_delay: datastore['TCP::send_delay'],
+        framework: framework,
+        framework_module: self,
+        ssl: datastore['SSL'],
+        ssl_version: datastore['SSLVersion'],
+        ssl_verify_mode: datastore['SSLVerifyMode'],
+        ssl_cipher: datastore['SSLCipher'],
+        local_port: datastore['CPORT'],
+        local_host: datastore['CHOST']
+      )
     )
 
     scanner.scan! do |result|

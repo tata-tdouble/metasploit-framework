@@ -1,5 +1,4 @@
 # -*- coding: binary -*-
-require 'msf/core'
 
 module Msf
 
@@ -39,8 +38,7 @@ class EvasionDriver
   # current evasion module.  Assumes that target_idx is valid.
   #
   def compatible_payload?(payload)
-    evasion_platform = evasion.targets[target_idx].platform || evasion.platform
-    return ((payload.platform & evasion_platform).empty? == false)
+    !evasion.compatible_payloads.find { |refname, _| refname == payload.refname }.nil?
   end
 
   def validate
@@ -49,8 +47,8 @@ class EvasionDriver
     end
 
     # Make sure the payload is compatible after all
-    if (compatible_payload?(payload) == false)
-      raise IncompatiblePayloadError.new(payload.refname), "Incompatible payload", caller
+    unless compatible_payload?(payload)
+      raise IncompatiblePayloadError.new(payload.refname), "#{payload.refname} is not a compatible payload.", caller
     end
 
     # Associate the payload instance with the evasion

@@ -20,7 +20,7 @@ module Msf::ModuleManager::Reloading
       self.inv_aliases.delete metasploit_class.fullname
     end
 
-    namespace_module = metasploit_class.parent
+    namespace_module = metasploit_class.module_parent
     loader = namespace_module.loader
     loader.reload_module(mod)
   end
@@ -39,8 +39,10 @@ module Msf::ModuleManager::Reloading
     # default the count to zero the first time a type is accessed
     count_by_type = Hash.new(0)
 
+    framework.init_module_paths unless framework.module_paths_inited
+
     module_paths.each do |path|
-      path_count_by_type = load_modules(path, :force => true)
+      path_count_by_type = load_modules(path, force: true)
 
       # merge count with count from other paths
       path_count_by_type.each do |type, count|

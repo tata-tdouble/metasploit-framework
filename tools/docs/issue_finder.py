@@ -16,7 +16,7 @@ parser = argparse.ArgumentParser(description='This script identifies issues with
     prefix_chars='--', )
 parser.add_argument('-m', '--modules', type=str, default='auxiliary/scanner', help='Choose the modules category to work with. Respect the module category names as in metasploit-framework. Only one category should be passed, e.g. "auxiliary/admin", "exploits/android/browser" or "encoders" are valid entries.')
 parser.add_argument('--show_all', action="store_true", default=False, help='Show the complete list of items. In default mode, modules with documentation are marked "[x]" and modules without are marked "[ ]". In issues mode, documentation files without module are marked "[ ]" and documentation files with module are marked "[x]".')
-parser.add_argument('--show_issues', action="store_true", default=False, help='Show the list of documentation files without modules instead of modules withouth documentation file.')
+parser.add_argument('--show_issues', action="store_true", default=False, help='Show the list of documentation files without modules instead of modules without documentation file.')
 parser.add_argument('-o', '--output', help="Writes to a file.")
 args = parser.parse_args()
 
@@ -38,6 +38,9 @@ else:
 for doc in list_docs:
     docs.append(doc.split('.')[0].replace('/documentation/','/'))
 for module in list_modules:
+    # skip compiled python code, and python internal use files
+    if module.split('.')[1] == 'pyc': continue
+    if '/_' in module.split('.')[0]: continue
     modules.append(module.split('.')[0])
 
 missings = 0

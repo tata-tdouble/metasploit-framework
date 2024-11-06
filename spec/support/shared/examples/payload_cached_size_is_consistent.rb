@@ -86,51 +86,6 @@ RSpec.shared_examples_for 'payload cached size is consistent' do |options|
 
   include_context 'Msf::Simple::Framework#modules loading'
 
-  opts = {
-    'Format'      => 'raw',
-    'Options'     => {
-      'CPORT' => 4444,
-      'LPORT' => 4444,
-      'LHOST' => '255.255.255.255',
-      'KHOST' => '255.255.255.255',
-      'AHOST' => '255.255.255.255',
-      'CMD' => '/bin/sh',
-      'URL' => 'http://a.com',
-      'PATH' => '/',
-      'BUNDLE' => 'data/isight.bundle',
-      'DLL' => 'external/source/byakugan/bin/XPSP2/detoured.dll',
-      'RC4PASSWORD' => 'Metasploit',
-      'DNSZONE' => 'corelan.eu',
-      'PEXEC' => '/bin/sh',
-      'StagerURILength' => 5
-    },
-    'Encoder'     => nil,
-    'DisableNops' => true
-  }
-
-  opts6 = {
-      'Format'      => 'raw',
-      'Options'     => {
-          'CPORT' => 4444,
-          'LPORT' => 4444,
-          'LHOST' => 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
-          'KHOST' => 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
-          'AHOST' => 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
-          'CMD' => '/bin/sh',
-          'URL' => 'http://a.com',
-          'PATH' => '/',
-          'BUNDLE' => 'data/isight.bundle',
-          'DLL' => 'external/source/byakugan/bin/XPSP2/detoured.dll',
-          'RC4PASSWORD' => 'Metasploit',
-          'DNSZONE' => 'corelan.eu',
-          'PEXEC' => '/bin/sh',
-          'StagerURILength' => 5
-      },
-      'Encoder'     => nil,
-      'DisableNops' => true
-  }
-
-
   #
   # lets
   #
@@ -157,7 +112,7 @@ RSpec.shared_examples_for 'payload cached size is consistent' do |options|
       )
     end
 
-    next if reference_name =~ /generic/
+    next if reference_name =~ /generic|peinject/
 
     if dynamic_size
       it 'is dynamic_size?' do
@@ -180,11 +135,9 @@ RSpec.shared_examples_for 'payload cached size is consistent' do |options|
         )
         expect(pinst.cached_size).to_not(be_nil)
         expect(pinst.dynamic_size?).to be(false)
-        if pinst.shortname =~ /6/
-          expect(pinst.cached_size).to eq(pinst.generate_simple(opts6).size)
-        else
-          expect(pinst.cached_size).to eq(pinst.generate_simple(opts).size)
-        end
+
+        module_options = Msf::Util::PayloadCachedSize.module_options(pinst)
+        expect(pinst.cached_size).to eq(pinst.generate_simple(module_options).size)
       end
     end
   end

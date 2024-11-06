@@ -18,7 +18,7 @@ class MetasploitModule < Msf::Auxiliary
       'References'   =>
         [
           # General
-          [ 'URL', 'http://blog.c22.cc' ]
+          [ 'URL', 'https://blog.c22.cc' ]
         ],
       'Author'       => [ 'Chris John Riley' ],
       'License'      => MSF_LICENSE
@@ -113,7 +113,7 @@ class MetasploitModule < Msf::Auxiliary
         )
         print_good("#{rhost}:#{rport} [SAP] Process Parameters: Entries extracted to #{loot}")
       else
-        name_match = Regexp.new(datastore['MATCH'], [Regexp::EXTENDED, 'n'])
+        name_match = Regexp.new(datastore['MATCH'], Regexp::EXTENDED | Regexp::NOENCODING)
         print_status("[SAP] Regex match selected, skipping loot storage")
         print_status("#{rhost}:#{rport} [SAP] Attempting to display configuration matches for #{name_match}")
 

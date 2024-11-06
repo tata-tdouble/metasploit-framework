@@ -3,7 +3,6 @@
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core/auxiliary/password_cracker'
 
 class MetasploitModule < Msf::Auxiliary
   include Msf::Auxiliary::PasswordCracker
@@ -17,7 +16,13 @@ class MetasploitModule < Msf::Auxiliary
         help combine all the passwords into an easy to use format.
       },
       'Author'          => ['h00die'],
-      'License'         => MSF_LICENSE
+      'License'         => MSF_LICENSE,
+      'Actions'         =>
+        [
+          ['john', 'Description' => 'Use John the Ripper'],
+          # ['hashcat', 'Description' => 'Use Hashcat'], # removed for simplicity
+        ],
+      'DefaultAction' => 'john',
     )
     deregister_options('ITERATION_TIMEOUT')
     deregister_options('CUSTOM_WORDLIST')
@@ -31,7 +36,7 @@ class MetasploitModule < Msf::Auxiliary
 
   end
 
-  # Not all hash formats include an 'id' field, which coresponds which db entry
+  # Not all hash formats include an 'id' field, which corresponds which db entry
   # an item is to its hash.  This can be problematic, especially when a username
   # is used as a salt.  Due to all the variations, we make a small HashLookup
   # class to handle all the fields for easier lookup later.
@@ -49,8 +54,14 @@ class MetasploitModule < Msf::Auxiliary
     end
   end
 
+  def show_run_command(cracker_instance)
+    return unless datastore['ShowCommand']
+    cmd = cracker_instance.show_command
+    print_status("   Cracking Command: #{cmd.join(' ')}")
+  end
+
   def run
-    cracker = new_john_cracker
+    cracker = new_password_cracker(action.name)
 
     lookups = []
 
@@ -58,7 +69,7 @@ class MetasploitModule < Msf::Auxiliary
     hashlist = Rex::Quickfile.new("hashes_tmp")
     framework.db.creds(workspace: myworkspace).each do |core|
       next if core.private.type == 'Metasploit::Credential::Password'
-      jtr_hash = hash_to_jtr(core)
+      jtr_hash = Metasploit::Framework::PasswordCracker::JtR::Formatter.hash_to_jtr(core)
       hashlist.puts jtr_hash
       lookups << HashLookup.new(core.private.data, jtr_hash, core.public, core.id)
     end
@@ -79,7 +90,8 @@ class MetasploitModule < Msf::Auxiliary
 
       print_status("Checking #{format} hashes against pot file")
       cracker.format = format
-      cracker.each_cracked_password do |password_line|
+      show_run_command(cracker)
+      cracker.each_cracked_password.each do |password_line|
         password_line.chomp!
         next if password_line.blank? || password_line.nil?
         fields = password_line.split(":")

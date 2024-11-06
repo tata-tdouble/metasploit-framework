@@ -9,6 +9,8 @@ module Msf
 
 module Auxiliary::AuthBrute
 
+  include Msf::Auxiliary::LoginScanner
+
   def initialize(info = {})
     super
 
@@ -25,7 +27,9 @@ module Auxiliary::AuthBrute
       OptBool.new('DB_ALL_CREDS', [false,"Try each user/password couple stored in the current database",false]),
       OptBool.new('DB_ALL_USERS', [false,"Add all users in the current database to the list",false]),
       OptBool.new('DB_ALL_PASS', [false,"Add all passwords in the current database to the list",false]),
+      OptEnum.new('DB_SKIP_EXISTING', [false,"Skip existing credentials stored in the current database", 'none', %w[ none user user&realm ]]),
       OptBool.new('STOP_ON_SUCCESS', [ true, "Stop guessing when a credential works for a host", false]),
+      OptBool.new('ANONYMOUS_LOGIN', [ true, "Attempt to login with a blank username and password", false])
     ], Auxiliary::AuthBrute)
 
     register_advanced_options([
@@ -43,6 +47,71 @@ module Auxiliary::AuthBrute
         be tried up to the MaxGuessesPerUser limit.	If set to zero or a non-number,
         this option will not be used.}.gsub(/[\t\r\n\s]+/nm,"\s"), 0]) # Tracked in @@brute_start_time
     ], Auxiliary::AuthBrute)
+  end
+
+  # Build a new CredentialCollection instance configured based on the datastore options. Any options passed in will take
+  # precedence over the datastore. Usernames and passwords will be prepended to the credential collection if their
+  # respective datastore options are configured appropriately. Finally the resulting CredentialCollection will be
+  # configured to perform any necessary filtering per the DB_SKIP_EXISTING option.
+  #
+  # @param [Hash] opts the options with which to build the CredentialCollection instance
+  # @return [Metasploit::Framework::CredentialCollection] the built CredentialCollection
+  def build_credential_collection(opts)
+    cred_collection = Metasploit::Framework::CredentialCollection.new({
+      blank_passwords: datastore['BLANK_PASSWORDS'],
+      pass_file: datastore['PASS_FILE'],
+      user_file: datastore['USER_FILE'],
+      userpass_file: datastore['USERPASS_FILE'],
+      user_as_pass: datastore['USER_AS_PASS'],
+      password_spray: datastore['PASSWORD_SPRAY']
+    }.merge(opts))
+
+    if framework.db.active
+      cred_collection = prepend_db_usernames(cred_collection)
+      cred_collection = prepend_db_passwords(cred_collection)
+    else
+      ignored = %w{ DB_ALL_CREDS DB_ALL_PASS DB_ALL_USERS }.select { |option| datastore[option] }
+      ignored << 'DB_SKIP_EXISTING' unless datastore['DB_SKIP_EXISTING'].blank? || datastore['DB_SKIP_EXISTING'] == 'none'
+      unless ignored.empty?
+        print_warning("No active DB -- The following option#{ ignored.length == 1 ? '' : 's'} will be ignored: #{ ignored.join(', ') }")
+      end
+    end
+
+    # only define the filter if any filtering needs to take place
+    unless datastore['DB_SKIP_EXISTING'].blank? || datastore['DB_SKIP_EXISTING'] == 'none'
+      cred_collection.filter = -> (cred) do
+        return true unless datastore['DB_SKIP_EXISTING']
+        return true unless framework.db.active
+        opts = { workspace: myworkspace.name }
+
+        opts[:type] =
+          case cred.private_type
+          when :ntlm_hash
+            'Metasploit::Credential::NTLMHash'
+          when :password
+            'Metasploit::Credential::Password'
+          when :ssh_key
+            'Metasploit::Credential::SSHKey'
+          else
+            return true # not a private type that we can filter on
+          end
+
+        case datastore['DB_SKIP_EXISTING']
+        when 'user'
+          opts[:user] = cred.public
+        when 'user&realm'
+          opts[:user] = cred.public
+          opts[:realm] = cred.realm
+        else
+          return true
+        end
+
+        # cred[@public, @private, @private_type[:password], @realm]
+        framework.db.creds(opts).length == 0
+      end
+    end
+
+    cred_collection
   end
 
   def setup
@@ -77,6 +146,17 @@ module Auxiliary::AuthBrute
   # @yieldparam [Metasploit::Credential::Core]
   def each_ssh_cred
     creds = framework.db.creds(type: 'Metasploit::Credential::SSHKey', workspace: myworkspace.name)
+    creds.each do |cred|
+      yield cred
+    end
+  end
+
+  # Yields each Metasploit::Credential::Core in the Mdm::Workspace with
+  # a private type of 'nil'
+  #
+  # @yieldparam [Metasploit::Credential::Core]
+  def each_username_cred
+    creds = framework.db.creds(type: nil, workspace: myworkspace.name)
     creds.each do |cred|
       yield cred
     end
@@ -129,6 +209,21 @@ module Auxiliary::AuthBrute
   def prepend_db_passwords(cred_collection)
     if prepend_db_creds?
       each_password_cred do |cred|
+        process_cred_for_collection(cred_collection,cred)
+      end
+    end
+    cred_collection
+  end
+
+  # This method takes a Metasploit::Framework::CredentialCollection and prepends existing Usernames
+  # from the database. This allows the users to use the DB_ALL_USERS option.
+  #
+  # @param cred_collection [Metasploit::Framework::CredentialCollection]
+  #    the credential collection to add to
+  # @return [Metasploit::Framework::CredentialCollection] the modified Credentialcollection
+  def prepend_db_usernames(cred_collection)
+    if prepend_db_creds?
+      each_username_cred do |cred|
         process_cred_for_collection(cred_collection,cred)
       end
     end
@@ -307,12 +402,12 @@ module Auxiliary::AuthBrute
         end
       end
       if datastore['DB_ALL_USERS']
-        framework.db.creds(workspace: myworkspace.name).creds.each do |o|
+        framework.db.creds(workspace: myworkspace.name).each do |o|
           users << o.public.username if o.public
         end
       end
       if datastore['DB_ALL_PASS']
-        framework.db.creds(workspace: myworkspace.name).creds.each do |o|
+        framework.db.creds(workspace: myworkspace.name).each do |o|
           passwords << o.private.data if o.private && o.private.type =~ /password/i
         end
       end
@@ -483,13 +578,13 @@ module Auxiliary::AuthBrute
 
   def extract_words(wordfile)
     return [] unless wordfile && File.readable?(wordfile)
+
     begin
-      words = File.open(wordfile) {|f| f.read(f.stat.size)}
-    rescue
-      return
+      File.readlines(wordfile, chomp: true)
+    rescue ::StandardError => e
+      elog(e)
+      []
     end
-    save_array = words.split(/\r?\n/)
-    return save_array
   end
 
   def get_object_from_memory_location(memloc)
@@ -585,7 +680,7 @@ module Auxiliary::AuthBrute
     print_brute :level => :vgood, :msg => msg
   end
 
-  # Provides a consistant way to display messages about AuthBrute-mixed modules.
+  # Provides a consistent way to display messages about AuthBrute-mixed modules.
   # Acceptable opts are fairly self-explanatory, but :level can be tricky.
   #
   # It can be one of status, good, error, or line (and corresponds to the usual
@@ -705,4 +800,3 @@ module Auxiliary::AuthBrute
 
 end
 end
-

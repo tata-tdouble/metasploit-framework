@@ -1,12 +1,4 @@
 # -*- coding: binary -*-
-require 'msf/core'
-require 'msf/base'
-require 'msf/ui'
-require 'msf/ui/console/framework_event_manager'
-require 'msf/ui/console/command_dispatcher'
-require 'msf/ui/console/command_dispatcher/db'
-require 'msf/ui/console/command_dispatcher/creds'
-require 'msf/ui/console/table'
 require 'find'
 require 'erb'
 require 'rexml/document'
@@ -24,9 +16,8 @@ class Driver < Msf::Ui::Driver
 
   ConfigCore  = "framework/core"
   ConfigGroup = "framework/ui/console"
-  DbConfigGroup = "framework/database"
 
-  DefaultPrompt     = "%undmsf5%clr"
+  DefaultPrompt     = "%undmsf#{Metasploit::Framework::Version::MAJOR}%clr"
   DefaultPromptChar = "%clr>"
 
   #
@@ -38,7 +29,8 @@ class Driver < Msf::Ui::Driver
     CommandDispatcher::Resource,
     CommandDispatcher::Db,
     CommandDispatcher::Creds,
-    CommandDispatcher::Developer
+    CommandDispatcher::Developer,
+    CommandDispatcher::DNS
   ]
 
   #
@@ -60,6 +52,7 @@ class Driver < Msf::Ui::Driver
   #
   # @option opts [Boolean] 'AllowCommandPassthru' (true) Whether to allow
   #   unrecognized commands to be executed by the system shell
+  # @option opts [Boolean] 'Readline' (true) Whether to use the readline or not
   # @option opts [Boolean] 'RealReadline' (false) Whether to use the system's
   #   readline library instead of RBReadline
   # @option opts [String] 'HistFile' (Msf::Config.history_file) Path to a file
@@ -75,10 +68,28 @@ class Driver < Msf::Ui::Driver
 
     histfile = opts['HistFile'] || Msf::Config.history_file
 
+    begin
+      FeatureManager.instance.load_config
+    rescue StandardError => e
+      elog(e)
+    end
+
+    if opts['DeferModuleLoads'].nil?
+      opts['DeferModuleLoads'] = Msf::FeatureManager.instance.enabled?(Msf::FeatureManager::DEFER_MODULE_LOADS)
+    end
+
     # Initialize attributes
 
-    # Defer loading of modules until paths from opts can be added below
-    framework_create_options = opts.merge('DeferModuleLoads' => true)
+    framework_create_options = opts.merge({ 'DeferModuleLoads' => true })
+
+    if Msf::FeatureManager.instance.enabled?(Msf::FeatureManager::DNS)
+      dns_resolver = Rex::Proto::DNS::CachedResolver.new
+      dns_resolver.extend(Rex::Proto::DNS::CustomNameserverProvider)
+      dns_resolver.load_config if dns_resolver.has_config?
+
+      # Defer loading of modules until paths from opts can be added below
+      framework_create_options = framework_create_options.merge({ 'CustomDnsResolver' => dns_resolver })
+    end
     self.framework = opts['Framework'] || Msf::Simple::Framework.create(framework_create_options)
 
     if self.framework.datastore['Prompt']
@@ -87,7 +98,7 @@ class Driver < Msf::Ui::Driver
     end
 
     # Call the parent
-    super(prompt, prompt_char, histfile, framework)
+    super(prompt, prompt_char, histfile, framework, :msfconsole)
 
     # Temporarily disable output
     self.disable_output = true
@@ -99,6 +110,10 @@ class Driver < Msf::Ui::Driver
     # handle if one is supplied
     input = opts['LocalInput']
     input ||= Rex::Ui::Text::Input::Stdio.new
+
+    if !opts['Readline']
+      input.disable_readline
+    end
 
     if (opts['LocalOutput'])
       if (opts['LocalOutput'].kind_of?(String))
@@ -120,27 +135,24 @@ class Driver < Msf::Ui::Driver
     # Report readline error if there was one..
     if !@rl_err.nil?
       print_error("***")
-      print_error("* WARNING: Unable to load readline: #{@rl_err}")
+      print_error("* Unable to load readline: #{@rl_err}")
       print_error("* Falling back to RbReadLine")
       print_error("***")
     end
 
     # Load the other "core" command dispatchers
-    CommandDispatchers.each do |dispatcher|
-      enstack_dispatcher(dispatcher)
+    CommandDispatchers.each do |dispatcher_class|
+      dispatcher = enstack_dispatcher(dispatcher_class)
+      dispatcher.load_config(opts['Config'])
     end
 
-    load_db_config(opts['Config'])
-
     if !framework.db || !framework.db.active
-      print_error("***")
       if framework.db.error == "disabled"
-        print_error("* WARNING: Database support has been disabled")
+        print_warning("Database support has been disabled")
       else
         error_msg = "#{framework.db.error.class.is_a?(String) ? "#{framework.db.error.class} " : nil}#{framework.db.error}"
-        print_error("* WARNING: No database support: #{error_msg}")
+        print_warning("No database support: #{error_msg}")
       end
-      print_error("***")
     end
 
     # Register event handlers
@@ -156,12 +168,12 @@ class Driver < Msf::Ui::Driver
     self.confirm_exit = opts['ConfirmExit']
 
     # Initialize the module paths only if we didn't get passed a Framework instance and 'DeferModuleLoads' is false
-    unless opts['Framework'] || opts['DeferModuleLoads']
+    unless opts['Framework']
       # Configure the framework module paths
-      self.framework.init_module_paths(module_paths: opts['ModulePath'])
+      self.framework.init_module_paths(module_paths: opts['ModulePath'], defer_module_loads: opts['DeferModuleLoads'])
     end
 
-    if framework.db && framework.db.active && framework.db.is_local? && !opts['DeferModuleLoads']
+    unless opts['DeferModuleLoads']
       framework.threads.spawn("ModuleCacheRebuild", true) do
         framework.modules.refresh_cache_from_module_files
       end
@@ -194,9 +206,23 @@ class Driver < Msf::Ui::Driver
     if restore_handlers
       print_status("Starting persistent handler(s)...")
 
-      restore_handlers.each do |handler_opts|
+      restore_handlers.each.with_index do |handler_opts, index|
         handler = framework.modules.create(handler_opts['mod_name'])
-        handler.exploit_simple(handler_opts['mod_options'])
+        handler.init_ui(self.input, self.output)
+        replicant_handler = nil
+        handler.exploit_simple(handler_opts['mod_options']) do |yielded_replicant_handler|
+          replicant_handler = yielded_replicant_handler
+        end
+
+        if replicant_handler.nil? || replicant_handler.error
+          print_status("Failed to start persistent payload handler ##{index} (#{handler_opts['mod_name']})")
+          next
+        end
+
+        if replicant_handler.error.nil?
+          job_id = handler.job_id
+          print_status "Persistent payload handler started as Job #{job_id}"
+        end
       end
     end
 
@@ -224,38 +250,6 @@ class Driver < Msf::Ui::Driver
       conf[ConfigCore].each_pair { |k, v|
         on_variable_set(true, k, v)
       }
-    end
-  end
-
-  def load_db_config(path=nil)
-    begin
-      conf = Msf::Config.load(path)
-    rescue
-      wlog("Failed to load configuration: #{$!}")
-      return
-    end
-
-    if conf.group?(DbConfigGroup)
-      conf[DbConfigGroup].each_pair do |k, v|
-        if k.downcase == 'default_db'
-          ilog "Default data service found. Attempting to connect..."
-          default_db_config_path = "#{DbConfigGroup}/#{v}"
-          default_db = conf[default_db_config_path]
-          if default_db
-            connect_string = "db_connect #{v}"
-
-            if framework.db.active && default_db['url'] !~ /http/
-              ilog "Existing local data connection found. Disconnecting first."
-              run_single("db_disconnect")
-            end
-
-            run_single(connect_string)
-          else
-            elog "Config entry for '#{default_db_config_path}' could not be found. Config file might be corrupt."
-            return
-          end
-        end
-      end
     end
   end
 
@@ -287,9 +281,9 @@ class Driver < Msf::Ui::Driver
   end
 
   #
-  # Saves configuration for the console.
+  # Generate configuration for the console.
   #
-  def save_config
+  def get_config
     # Build out the console config group
     group = {}
 
@@ -303,9 +297,23 @@ class Driver < Msf::Ui::Driver
       end
     end
 
-    # Save it
+    group
+  end
+
+  def get_config_core
+    ConfigCore
+  end
+
+  def get_config_group
+    ConfigGroup
+  end
+
+  #
+  # Saves configuration for the console.
+  #
+  def save_config
     begin
-      Msf::Config.save(ConfigGroup => group)
+      Msf::Config.save(ConfigGroup => get_config)
     rescue ::Exception
       print_error("Failed to save console config: #{$!}")
     end
@@ -353,30 +361,24 @@ class Driver < Msf::Ui::Driver
   # displayed, scripts can be processed, and other fun can be had.
   #
   def on_startup(opts = {})
-    log_msg = "Please see #{File.join(Msf::Config.log_directory, 'framework.log')} for details."
-
     # Check for modules that failed to load
     if framework.modules.module_load_error_by_path.length > 0
-      print_error("WARNING! The following modules could not be loaded!")
+      wlog("The following modules could not be loaded!")
 
       framework.modules.module_load_error_by_path.each do |path, _error|
-        print_error("\t#{path}")
+        wlog("\t#{path}")
       end
-
-      print_error(log_msg)
     end
 
     if framework.modules.module_load_warnings.length > 0
       print_warning("The following modules were loaded with warnings:")
 
       framework.modules.module_load_warnings.each do |path, _error|
-        print_warning("\t#{path}")
+        wlog("\t#{path}")
       end
-
-      print_warning(log_msg)
     end
 
-    if framework.db && framework.db.active
+    if framework.db&.active
       framework.db.workspace = framework.db.default_workspace unless framework.db.workspace
     end
 
@@ -389,11 +391,41 @@ class Driver < Msf::Ui::Driver
 
     run_single("banner") unless opts['DisableBanner']
 
+    payloads_manifest_errors = []
+    begin
+      payloads_manifest_errors = ::MetasploitPayloads.manifest_errors if framework.features.enabled?(::Msf::FeatureManager::METASPLOIT_PAYLOAD_WARNINGS)
+    rescue ::StandardError => e
+      $stderr.print('Could not verify the integrity of the Metasploit Payloads manifest')
+      elog(e)
+    end
+
+    av_warning_message if (framework.eicar_corrupted? || payloads_manifest_errors.any?)
+
+    if framework.features.enabled?(::Msf::FeatureManager::METASPLOIT_PAYLOAD_WARNINGS)
+      if payloads_manifest_errors.any?
+        warn_msg = "Metasploit Payloads manifest errors:\n"
+        payloads_manifest_errors.each do |file|
+          warn_msg << "\t#{file[:path]} : #{file[:error]}\n"
+        end
+        $stderr.print(warn_msg)
+      end
+    end
+
     opts["Plugins"].each do |plug|
       run_single("load '#{plug}'")
     end if opts["Plugins"]
 
     self.on_command_proc = Proc.new { |command| framework.events.on_ui_command(command) }
+  end
+
+  def av_warning_message
+      avdwarn = "\e[31m"\
+                "Warning: This copy of the Metasploit Framework has been corrupted by an installed anti-virus program."\
+                " We recommend that you disable your anti-virus or exclude your Metasploit installation path, "\
+                "then restore the removed files from quarantine or reinstall the framework.\e[0m"\
+                "\n\n"
+
+      $stderr.puts(Rex::Text.wordwrap(avdwarn, 0, 80))
   end
 
   #
@@ -406,6 +438,8 @@ class Driver < Msf::Ui::Driver
     case var.downcase
     when 'sessionlogging'
       handle_session_logging(val) if glob
+    when 'sessiontlvlogging'
+      handle_session_tlv_logging(val) if glob
     when 'consolelogging'
       handle_console_logging(val) if glob
     when 'loglevel'
@@ -425,6 +459,8 @@ class Driver < Msf::Ui::Driver
     case var.downcase
     when 'sessionlogging'
       handle_session_logging('0') if glob
+    when 'sessiontlvlogging'
+      handle_session_tlv_logging('false') if glob
     when 'consolelogging'
       handle_console_logging('0') if glob
     when 'loglevel'
@@ -492,28 +528,33 @@ protected
     [method, method+".exe"].each do |cmd|
       if command_passthru && Rex::FileUtils.find_full_path(cmd)
 
-        print_status("exec: #{line}")
-        print_line('')
-
         self.busy = true
         begin
-          system(line)
+          run_unknown_command(line)
         rescue ::Errno::EACCES, ::Errno::ENOENT
           print_error("Permission denied exec: #{line}")
         end
         self.busy = false
         return
-      elsif framework.modules.create(method)
-        super
-        if prompt_yesno "This is a module we can load. Do you want to use #{method}?"
-          run_single "use #{method}"
-        end
-
-        return
       end
     end
 
+    if framework.modules.create(method)
+      super
+      if prompt_yesno "This is a module we can load. Do you want to use #{method}?"
+        run_single "use #{method}"
+      end
+
+      return
+    end
+
     super
+  end
+
+  def run_unknown_command(command)
+    print_status("exec: #{command}")
+    print_line('')
+    system(command)
   end
 
   ##
@@ -528,10 +569,16 @@ protected
   def handle_session_logging(val)
     if (val =~ /^(y|t|1)/i)
       Msf::Logging.enable_session_logging(true)
-      print_line("Session logging will be enabled for future sessions.")
+      framework.sessions.values.each do |session|
+        Msf::Logging.start_session_log(session)
+      end
+      print_line("Session logging enabled.")
     else
       Msf::Logging.enable_session_logging(false)
-      print_line("Session logging will be disabled for future sessions.")
+      framework.sessions.values.each do |session|
+        Msf::Logging.stop_session_log(session)
+      end
+      print_line("Session logging disabled.")
     end
   end
 
@@ -574,9 +621,9 @@ protected
       return false
     elsif active_module && (active_module.exploit? || active_module.evasion?)
       return false unless active_module.is_payload_compatible?(val)
-    elsif active_module
+    elsif active_module && !framework.features.enabled?(Msf::FeatureManager::DATASTORE_FALLBACKS)
       active_module.datastore.clear_non_user_defined
-    elsif framework
+    elsif framework && !framework.features.enabled?(Msf::FeatureManager::DATASTORE_FALLBACKS)
       framework.datastore.clear_non_user_defined
     end
   end
@@ -609,6 +656,53 @@ protected
     $VERBOSE = verbose
   end
 
+  def handle_session_tlv_logging(val)
+    return false if val.nil?
+
+    if val.casecmp?('console') || val.casecmp?('true') || val.casecmp?('false')
+      return true
+    elsif val.start_with?('file:') && !val.split('file:').empty?
+      pathname = ::Pathname.new(val.split('file:').last)
+
+      # Check if we want to write the log to file
+      if ::File.file?(pathname)
+        if ::File.writable?(pathname)
+          return true
+        else
+          print_status "No write permissions for log output file: #{pathname}"
+          return false
+        end
+        # Check if we want to write the log file to a directory
+      elsif ::File.directory?(pathname)
+        if ::File.writable?(pathname)
+          return true
+        else
+          print_status "No write permissions for log output directory: #{pathname}"
+          return false
+        end
+        # Check if the subdirectory exists
+      elsif ::File.directory?(pathname.dirname)
+        if ::File.writable?(pathname.dirname)
+          return true
+        else
+          print_status "No write permissions for log output directory: #{pathname.dirname}"
+          return false
+        end
+      else
+        # Else the directory doesn't exist. Check if we can create it.
+        begin
+          ::FileUtils.mkdir_p(pathname.dirname)
+          return true
+        rescue ::StandardError => e
+          print_status "Error when trying to create directory #{pathname.dirname}: #{e.message}"
+          return false
+        end
+      end
+    end
+
+    false
+  end
+
   # Require the appropriate readline library based on the user's preference.
   #
   # @return [void]
@@ -630,6 +724,46 @@ protected
 
     begin
       require 'readline'
+
+      # Only Windows requires a monkey-patched RbReadline
+      return unless Rex::Compat.is_windows
+
+      if defined?(::RbReadline) && !defined?(RbReadline.refresh_console_handle)
+        ::RbReadline.instance_eval do
+          class << self
+            alias_method :old_rl_move_cursor_relative, :_rl_move_cursor_relative
+            alias_method :old_rl_get_screen_size, :_rl_get_screen_size
+            alias_method :old_space_to_eol, :space_to_eol
+            alias_method :old_insert_some_chars, :insert_some_chars
+          end
+
+          def self.refresh_console_handle
+            # hConsoleHandle gets set only when RbReadline detects it is running on Windows.
+            # Therefore, we don't need to check Rex::Compat.is_windows, we can simply check if hConsoleHandle is nil or not.
+            @hConsoleHandle = @GetStdHandle.Call(::Readline::STD_OUTPUT_HANDLE) if @hConsoleHandle
+          end
+
+          def self._rl_move_cursor_relative(*args)
+            refresh_console_handle
+            old_rl_move_cursor_relative(*args)
+          end
+
+          def self._rl_get_screen_size(*args)
+            refresh_console_handle
+            old_rl_get_screen_size(*args)
+          end
+
+          def self.space_to_eol(*args)
+            refresh_console_handle
+            old_space_to_eol(*args)
+          end
+
+          def self.insert_some_chars(*args)
+            refresh_console_handle
+            old_insert_some_chars(*args)
+          end
+        end
+      end
     rescue ::LoadError => e
       if @rl_err.nil? && index
         # Then this is the first time the require failed and we have an index

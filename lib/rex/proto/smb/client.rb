@@ -8,14 +8,6 @@ class Client
 
 require 'rex/text'
 require 'rex/struct2'
-require 'rex/proto/smb/constants'
-require 'rex/proto/smb/exceptions'
-require 'rex/proto/smb/evasions'
-require 'rex/proto/smb/utils'
-require 'rex/proto/smb/crypt'
-require 'rex/proto/ntlm/crypt'
-require 'rex/proto/ntlm/constants'
-require 'rex/proto/ntlm/utils'
 
 
 # Some short-hand class aliases
@@ -163,7 +155,7 @@ NTLM_UTILS = Rex::Proto::NTLM::Utils
     pkt.from_s(data)
 
     # Store the received packet into the cache
-    @smb_recv_cache << [ pkt, data, Time.now ]
+    @smb_recv_cache << [ pkt, data, ::Time.now ]
   end
 
   # Scan the packet receive cache for a matching response
@@ -182,7 +174,7 @@ NTLM_UTILS = Rex::Proto::NTLM::Utils
       end
 
       # Purge any packets older than 5 minutes
-      if Time.now.to_i - tstamp.to_i > 300
+      if ::Time.now.to_i - tstamp.to_i > 300
         clean << cent
       end
 
@@ -627,7 +619,7 @@ NTLM_UTILS = Rex::Proto::NTLM::Utils
     # A signed 16-bit signed integer that represents the server's time zone, in minutes,
     # from UTC. The time zone of the server MUST be expressed in minutes, plus or minus,
     # from UTC.
-    # NOTE: althought the spec says +/- it doesn't say that it should be inverted :-/
+    # NOTE: although the spec says +/- it doesn't say that it should be inverted :-/
     system_zone = ack['Payload'].v['ServerTimeZone']
     # Convert the ServerTimeZone to _seconds_ and back into a signed integer :-/
     if (system_zone & 0x8000) == 0x8000
@@ -2079,7 +2071,7 @@ NTLM_UTILS = Rex::Proto::NTLM::Utils
     return self.smb_recv_parse(CONST::SMB_COM_ECHO)
   end
 
-  
+
 # public read/write methods
   attr_accessor :native_os, :native_lm, :encrypt_passwords, :extended_security, :read_timeout, :evasion_opts
   attr_accessor :verify_signature, :use_ntlmv2, :usentlm2_session, :send_lm, :use_lanman_key, :send_ntlm

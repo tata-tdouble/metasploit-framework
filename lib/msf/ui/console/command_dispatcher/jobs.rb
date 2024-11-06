@@ -5,7 +5,6 @@
 # Rex
 #
 
-require 'rex/ui/text/output/buffer/stdout'
 
 module Msf
   module Ui
@@ -147,6 +146,10 @@ module Msf
                 job_id = val
               when "-p"
                 job_list = build_range_array(val)
+                if job_list.blank?
+                  print_error('Please specify valid job identifier(s)')
+                  return
+                end
                 job_list.each do |job_id|
                   add_persist_job(job_id)
                 end
@@ -210,11 +213,13 @@ module Msf
               end
 
               # Remove persistence by job id.
-              job_list.map(&:to_s).each do |job|
-                if framework.jobs.key?(job)
-                  next unless framework.jobs[job.to_s].ctx[1] # next if no payload context in the job
-                  payload_option = framework.jobs[job.to_s].ctx[1].datastore
-                  persist_list.delete_if{|pjob|pjob['mod_options']['Options'] == payload_option}
+              job_list.map(&:to_s).each do |job_id|
+                job_id = job_id.to_i < 0 ? framework.jobs.keys[job_id.to_i] : job_id
+                if framework.jobs.key?(job_id)
+                  ctx_1 = framework.jobs[job_id.to_s].ctx[1]
+                  next if ctx_1.nil? || !ctx_1.respond_to?(:datastore)  # next if no payload context in the job
+                  payload_option = ctx_1.datastore
+                  persist_list.delete_if{|pjob|pjob['mod_options']['Options'] == payload_option.to_h}
                 end
               end
               # Write persist job back to config file.
@@ -223,12 +228,13 @@ module Msf
               end
 
               # Stop the job by job id.
-              job_list.map(&:to_s).each do |job|
-                if framework.jobs.key?(job)
-                  print_status("Stopping job #{job}")
-                  framework.jobs.stop_job(job)
+              job_list.map(&:to_s).each do |job_id|
+                job_id = job_id.to_i < 0 ? framework.jobs.keys[job_id.to_i] : job_id
+                if framework.jobs.key?(job_id)
+                  print_status("Stopping job #{job_id}")
+                  framework.jobs.stop_job(job_id)
                 else
-                  print_error("Invalid job identifier: #{job}")
+                  print_error("Invalid job identifier: #{job_id}")
                 end
               end
             end
@@ -241,7 +247,8 @@ module Msf
 
           def add_persist_job(job_id)
             if job_id && framework.jobs.has_key?(job_id.to_s)
-              unless framework.jobs[job_id.to_s].ctx[1]
+              handler_ctx = framework.jobs[job_id.to_s].ctx[1]
+              unless handler_ctx and handler_ctx.respond_to?(:replicant)
                 print_error("Add persistent job failed: job #{job_id} is not payload handler.")
                 return
               end
@@ -251,7 +258,7 @@ module Msf
 
               payload_opts = {
                 'Payload'        => payload.refname,
-                'Options'        => payload.datastore,
+                'Options'        => payload.datastore.to_h,
                 'RunAsJob'       => true
               }
 
@@ -283,9 +290,9 @@ module Msf
           # at least 1 when tab completion has reached this stage since the command itself has been completed
 
           def cmd_jobs_tabs(_str, words)
-            return @@jobs_opts.fmt.keys if words.length == 1
+            return @@jobs_opts.option_keys if words.length == 1
 
-            if words.length == 2 && (@@jobs_opts.fmt[words[1]] || [false])[0]
+            if words.length == 2 && @@jobs_opts.include?(words[1]) && @@jobs_opts.arg_required?(words[1])
               return framework.jobs.keys
             end
 
@@ -432,10 +439,10 @@ module Msf
             fmt = {
               '-h' => [ nil                                               ],
               '-x' => [ nil                                               ],
-              '-p' => [ framework.payloads.map { |refname, mod| refname } ],
+              '-p' => [ framework.payloads.module_refnames                ],
               '-P' => [ true                                              ],
               '-H' => [ :address                                          ],
-              '-e' => [ framework.encoders.map { |refname, mod| refname } ],
+              '-e' => [ framework.encoders.module_refnames                ],
               '-n' => [ true                                              ]
             }
             tab_complete_generic(fmt, str, words)

@@ -14,25 +14,21 @@ class MetasploitModule < Msf::Auxiliary
 
   def initialize
     super(
-      'Name'        => 'GitLab Login Utility',
+      'Name' => 'GitLab Login Utility',
       'Description' => 'This module attempts to login to a GitLab instance using a specific user/pass.',
-      'Author'      => [ 'Ben Campbell' ],
-      'License'     => MSF_LICENSE,
-      'References'  =>
-        [
-          ['URL', 'https://labs.mwrinfosecurity.com/blog/2015/03/20/gitlab-user-enumeration/']
-        ]
+      'Author' => [ 'Ben Campbell' ],
+      'License' => MSF_LICENSE,
+      'References' => [
+        ['URL', 'https://labs.f-secure.com/archive/gitlab-user-enumeration/']
+      ]
     )
 
     register_options(
       [
         Opt::RPORT(80),
-        OptString.new('HttpUsername', [ true, 'The username to test', 'root' ]),
-        OptString.new('HttpPassword', [ true, 'The password to test', '5iveL!fe' ]),
         OptString.new('TARGETURI', [true, 'The path to GitLab', '/'])
-      ])
-
-    deregister_options('PASSWORD_SPRAY')
+      ]
+    )
 
     register_autofilter_ports([ 80, 443 ])
   end
@@ -40,28 +36,23 @@ class MetasploitModule < Msf::Auxiliary
   def run_host(ip)
     uri = normalize_uri(target_uri.path.to_s, 'users', 'sign_in')
     res = send_request_cgi(
-                            'method' => 'GET',
-                            'cookie' => 'request_method=GET',
-                            'uri'    => uri
+      'method' => 'GET',
+      'cookie' => 'request_method=GET',
+      'uri' => uri
     )
 
     if res && res.body && res.body.include?('user[email]')
-      vprint_status("GitLab v5 login page")
+      vprint_status('GitLab v5 login page')
     elsif res && res.body && res.body.include?('user[login]')
-      vprint_status("GitLab v7 login page")
+      vprint_status('GitLab v7 login page')
     else
       vprint_error('Not a valid GitLab login page')
       return
     end
 
-    cred_collection = Metasploit::Framework::CredentialCollection.new(
-      blank_passwords: datastore['BLANK_PASSWORDS'],
-      pass_file: datastore['PASS_FILE'],
-      password: datastore['HttpPassword'],
-      user_file: datastore['USER_FILE'],
-      userpass_file: datastore['USERPASS_FILE'],
-      username: datastore['HttpUsername'],
-      user_as_pass: datastore['USER_AS_PASS']
+    cred_collection = build_credential_collection(
+      username: datastore['USERNAME'],
+      password: datastore['PASSWORD']
     )
 
     scanner = Metasploit::Framework::LoginScanner::GitLab.new(
@@ -77,8 +68,8 @@ class MetasploitModule < Msf::Auxiliary
     scanner.scan! do |result|
       credential_data = result.to_h
       credential_data.merge!(
-          module_fullname: fullname,
-          workspace_id: myworkspace_id
+        module_fullname: fullname,
+        workspace_id: myworkspace_id
       )
       if result.success?
         credential_core = create_credential(credential_data)

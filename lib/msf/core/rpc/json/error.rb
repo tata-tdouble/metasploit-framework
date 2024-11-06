@@ -14,14 +14,14 @@ module Msf::RPC::JSON
 
   # JSON-RPC 2.0 Error Messages
   ERROR_MESSAGES = {
-      # Specification errors:
-      PARSE_ERROR => 'Invalid JSON was received by the server. An error occurred on the server while parsing the JSON text.',
-      INVALID_REQUEST => 'The JSON sent is not a valid Request object.',
-      METHOD_NOT_FOUND => 'The method %<name>s does not exist.',
-      INVALID_PARAMS => 'Invalid method parameter(s).',
-      INTERNAL_ERROR => 'Internal JSON-RPC error',
-      # Implementation-defined server-errors:
-      APPLICATION_SERVER_ERROR => 'Application server error: %<msg>s',
+    # Specification errors:
+    PARSE_ERROR => 'Invalid JSON was received by the server. An error occurred on the server while parsing the JSON text.',
+    INVALID_REQUEST => 'The JSON sent is not a valid Request object.',
+    METHOD_NOT_FOUND => 'The method %<name>s does not exist.',
+    INVALID_PARAMS => 'Invalid method parameter(s).',
+    INTERNAL_ERROR => 'Internal JSON-RPC error',
+    # Implementation-defined server-errors:
+    APPLICATION_SERVER_ERROR => 'Application server error: %<msg>s'
   }
 
   # Base class for all Msf::RPC::JSON exceptions.
@@ -178,7 +178,7 @@ module Msf::RPC::JSON
     # @param response [Hash] A response hash.
     # @param symbolize_names [Boolean] If true, symbols are used for the names (keys) when
     #   processing JSON objects; otherwise, strings are used. Default: true
-    # @returns [ErrorResponse] ErrorResponse object that represents the response hash.
+    # @return [ErrorResponse] ErrorResponse object that represents the response hash.
     def self.parse(response, symbolize_names: true)
       id_key = symbolize_names ? :id : :id.to_s
       error_key = symbolize_names ? :error : :error.to_s

@@ -113,7 +113,7 @@ class SessionManager < Hash
 
           last_seen_timer = Time.now.utc
 
-          ::ActiveRecord::Base.connection_pool.with_connection do
+          ::ApplicationRecord.connection_pool.with_connection do
             values.each do |s|
               # Update the database entry on a regular basis, marking alive threads
               # as recently seen.  This notifies other framework instances that this
@@ -138,8 +138,7 @@ class SessionManager < Hash
       #
       rescue ::Exception => e
         respawn_cnt += 1
-        elog("Exception #{respawn_cnt}/#{respawn_max} in monitor thread #{e.class} #{e}")
-        elog("Call stack: \n#{e.backtrace.join("\n")}")
+        elog("Exception #{respawn_cnt}/#{respawn_max} in monitor thread", error: e)
         if respawn_cnt < respawn_max
           ::IO.select(nil, nil, nil, 10.0)
           retry
@@ -218,18 +217,12 @@ class SessionManager < Hash
       # Insert the session into the session hash table
       self[next_sid.to_i] = session
 
-      # Notify the framework that we have a new session opening up...
-      # Don't let errant event handlers kill our session
-      begin
-        framework.events.on_session_open(session)
-      rescue ::Exception => e
-        wlog("Exception in on_session_open event handler: #{e.class}: #{e}")
-        wlog("Call Stack\n#{e.backtrace.join("\n")}")
-      end
-
       if session.respond_to?("console")
         session.console.on_command_proc = Proc.new { |command, error| framework.events.on_session_command(session, command) }
         session.console.on_print_proc = Proc.new { |output| framework.events.on_session_output(session, output) }
+      end
+      if session.respond_to?("on_registered")
+        session.on_registered
       end
     end
 
@@ -272,10 +265,9 @@ class SessionManager < Hash
     session = nil
     sid = sid.to_i
 
-    if sid > 0
-      session = self[sid]
-    elsif sid == -1
-      sid = self.keys.max
+    if sid < 0
+      session = self[self.keys.sort[sid]]
+    elsif sid > 0
       session = self[sid]
     end
 
@@ -302,4 +294,3 @@ protected
 end
 
 end
-

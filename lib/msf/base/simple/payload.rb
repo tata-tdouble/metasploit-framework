@@ -1,6 +1,5 @@
 # -*- coding: binary -*-
 
-require 'msf/base'
 
 module Msf
 module Simple
@@ -30,7 +29,7 @@ module Payload
   #   NopSledSize => The number of NOPs to use
   #   MaxSize     => The maximum size of the payload.
   #   Iterations  => Number of times to encode.
-  #   Force       => Force encoding.
+  #   ForceEncode => Force encoding.
   #
   # raises:
   #
@@ -105,8 +104,8 @@ module Payload
             fmt) +
           output
 
-        # If it's multistage, include the second stage too
-        if payload.staged?
+        # If verbose was requested and it's multistage, include the second stage too
+        if opts['Verbose'] && payload.staged?
           stage = payload.generate_stage
 
           # If a stage was generated, then display it

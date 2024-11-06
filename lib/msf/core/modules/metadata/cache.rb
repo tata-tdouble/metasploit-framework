@@ -1,13 +1,4 @@
 require 'singleton'
-require 'msf/events'
-require 'rex/ui/text/output/stdio'
-require 'msf/core/constants'
-require 'msf/core/modules/metadata'
-require 'msf/core/modules/metadata/obj'
-require 'msf/core/modules/metadata/search'
-require 'msf/core/modules/metadata/store'
-require 'msf/core/modules/metadata/maps'
-
 #
 # Core service class that provides storage of module metadata as well as operations on the metadata.
 # Note that operations on this metadata are included as separate modules.
@@ -21,6 +12,7 @@ class Cache
   include Msf::Modules::Metadata::Search
   include Msf::Modules::Metadata::Store
   include Msf::Modules::Metadata::Maps
+  include Msf::Modules::Metadata::Stats
 
   #
   # Refreshes cached module metadata as well as updating the store
@@ -43,14 +35,20 @@ class Cache
     }
   end
 
+  def get_module_reference(type:, reference_name:)
+    @mutex.synchronize do
+      wait_for_load
+      @module_metadata_cache["#{type}_#{reference_name}"]
+    end
+  end
   #
   # Checks for modules loaded that are not a part of the cache and updates the underlying store
   # if there are changes.
   #
   def refresh_metadata(module_sets)
+    has_changes = false
     @mutex.synchronize {
       unchanged_module_references = get_unchanged_module_references
-      has_changes = false
       module_sets.each do |mt|
         unchanged_reference_name_set = unchanged_module_references[mt[0]]
 
@@ -58,7 +56,7 @@ class Cache
           next if unchanged_reference_name_set.include? mn
 
           begin
-            module_instance = mt[1].create(mn)
+            module_instance = mt[1].create(mn, cache_type: Msf::ModuleManager::Cache::MEMORY)
           rescue Exception => e
             elog "Unable to create module: #{mn}. #{e.message}"
           end
@@ -76,16 +74,24 @@ class Cache
             refresh_metadata_instance_internal(module_instance)
             has_changes = true
           rescue Exception => e
-            elog("Error updating module details for #{module_instance.fullname}: #{$!.class} #{$!} : #{e.message}")
+            elog("Error updating module details for #{module_instance.fullname}", error: e)
           end
         end
       end
-
-      if has_changes
-        update_store
-        clear_maps
-      end
     }
+    if has_changes
+      update_store
+      clear_maps
+      update_stats
+    end
+  end
+
+  def module_metadata(type)
+    @mutex.synchronize do
+      wait_for_load
+      # TODO: Should probably figure out a way to cache this
+      @module_metadata_cache.filter_map { |_, metadata| [metadata.ref_name, metadata] if metadata.type == type }.to_h
+    end
   end
 
   #######
@@ -134,7 +140,7 @@ class Cache
     metadata_obj = Obj.new(module_instance)
 
     # Remove all instances of modules pointing to the same path. This prevents stale data hanging
-    # around when modules are incorrectly typed (eg: Auxilary that should be Exploit)
+    # around when modules are incorrectly typed (eg: Auxiliary that should be Exploit)
     @module_metadata_cache.delete_if {|_, module_metadata|
       module_metadata.path.eql? metadata_obj.path && module_metadata.type != module_metadata.type
     }
@@ -156,7 +162,7 @@ class Cache
     @module_metadata_cache = {}
     @store_loaded = false
     @console = Rex::Ui::Text::Output::Stdio.new
-    @load_thread = Thread.new  {
+    @load_thread = Thread.new {
       init_store
       @store_loaded = true
     }

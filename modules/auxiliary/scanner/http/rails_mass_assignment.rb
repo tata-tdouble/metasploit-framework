@@ -3,7 +3,7 @@
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'rex/proto/http'
+
 require 'uri'
 
 class MetasploitModule < Msf::Auxiliary
@@ -25,7 +25,7 @@ class MetasploitModule < Msf::Auxiliary
 
       'References'     =>
         [
-          [ 'URL', 'http://guides.rubyonrails.org/security.html#mass-assignment' ]
+          [ 'URL', 'https://guides.rubyonrails.org/security.html#mass-assignment' ]
         ],
       'Author'       => [ 'Gregory Man <man.gregory[at]gmail.com>' ],
       'License'      => MSF_LICENSE
@@ -44,9 +44,9 @@ class MetasploitModule < Msf::Auxiliary
   def run_host(ip)
     case datastore['METHOD']
     when 'POST'
-      parsed_data = queryparse(URI.unescape(datastore['DATA']))
+      parsed_data = queryparse(URI.decode_www_form_component(datastore['DATA']))
     when 'GET'
-      parsed_data = queryparse(URI.unescape(datastore['QUERY']))
+      parsed_data = queryparse(URI.decode_www_form_component(datastore['QUERY']))
     end
     data_base_params = get_base_params(parsed_data)
 

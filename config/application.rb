@@ -1,4 +1,6 @@
-require File.expand_path('../rails_bigdecimal_fix', __FILE__)
+require 'fiddle'
+Fiddle.const_set(:VERSION, '0.0.0') unless Fiddle.const_defined?(:VERSION)
+
 require 'rails'
 require File.expand_path('../boot', __FILE__)
 
@@ -30,7 +32,6 @@ require 'action_view/railtie'
 
 require 'metasploit/framework/common_engine'
 require 'metasploit/framework/database'
-
 module Metasploit
   module Framework
     class Application < Rails::Application
@@ -38,6 +39,7 @@ module Metasploit
 
       config.paths['log']             = "#{Msf::Config.log_directory}/#{Rails.env}.log"
       config.paths['config/database'] = [Metasploit::Framework::Database.configurations_pathname.try(:to_path)]
+      config.autoloader = :zeitwerk
 
       case Rails.env
       when "development"
@@ -45,7 +47,11 @@ module Metasploit
       when "test"
         config.eager_load = false
       when "production"
-        config.eager_load = true
+        config.eager_load = false
+      end
+
+      if ActiveRecord.respond_to?(:legacy_connection_handling=)
+        ActiveRecord.legacy_connection_handling = false
       end
     end
   end
@@ -53,3 +59,4 @@ end
 
 # Silence warnings about this defaulting to true
 I18n.enforce_available_locales = true
+require 'msfenv'

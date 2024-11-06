@@ -3,9 +3,6 @@
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core/handler/reverse_tcp'
-require 'msf/base/sessions/command_shell'
-require 'msf/base/sessions/command_shell_options'
 
 module MetasploitModule
 
@@ -43,7 +40,7 @@ module MetasploitModule
       arr.map{ |x| sprintf("0x%02x", x.hex) }.join(',')
   end
 
-  def generate_stage
+  def generate(opts={})
       # 22 -> "0x00,0x16"
       # 4444 -> "0x11,0x5c"
       tcp_port = convert_input(datastore['LPORT'], 4)

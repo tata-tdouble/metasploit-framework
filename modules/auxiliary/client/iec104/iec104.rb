@@ -22,9 +22,9 @@ class MetasploitModule < Msf::Auxiliary
         ],
       'License'        => MSF_LICENSE,
       'Actions'        =>
-      [
-        ['SEND_COMMAND', { 'Description' => 'Send command to device' }]
-      ],
+        [
+          ['SEND_COMMAND', 'Description' => 'Send command to device']
+        ],
       'DefaultAction' => 'SEND_COMMAND'))
 
     register_options(
@@ -40,7 +40,7 @@ class MetasploitModule < Msf::Auxiliary
   end
 
   # sends the frame data over tcp connection and returns received string
-  # using sock.get is causing quite some delay, but scripte needs to process responses from 104 server
+  # using sock.get is causing quite some delay, but script needs to process responses from 104 server
   def send_frame(data)
     begin
       sock.put(data)

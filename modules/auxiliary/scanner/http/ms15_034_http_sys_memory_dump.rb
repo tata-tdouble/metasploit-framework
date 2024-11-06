@@ -3,7 +3,7 @@
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'rex/proto/http'
+
 
 class MetasploitModule < Msf::Auxiliary
   include Msf::Exploit::Remote::HttpClient
@@ -32,7 +32,7 @@ class MetasploitModule < Msf::Auxiliary
         [
           ['CVE', '2015-1635'],
           ['MSB', 'MS15-034'],
-          ['URL', 'http://pastebin.com/ypURDPc4'],
+          ['URL', 'https://pastebin.com/ypURDPc4'],
           ['URL', 'https://github.com/rapid7/metasploit-framework/pull/5150'],
           ['URL', 'https://community.qualys.com/blogs/securitylabs/2015/04/20/ms15-034-analyze-and-remote-detection'],
           ['URL', 'http://www.securitysift.com/an-analysis-of-ms15-034/'],
@@ -64,7 +64,7 @@ class MetasploitModule < Msf::Auxiliary
       %w(href src).each do |attribute|
         attr_value = tag[attribute]
         next unless attr_value && !attr_value.empty?
-        uri = site_uri.merge(URI.encode(attr_value.strip))
+        uri = site_uri.merge(URI::DEFAULT_PARSER.escape(attr_value.strip))
         next unless uri.host == vhost || uri.host == rhost
         uris << uri.path if uri.path =~ /\.[a-z]{2,}$/i # Only keep path with a file
       end
@@ -162,11 +162,19 @@ class MetasploitModule < Msf::Auxiliary
 
   def run_host(ip)
     begin
-      if check_host(ip) == Exploit::CheckCode::Safe
-        print_error("Target is not vulnerable")
+      vuln_status = check_host(ip)
+      case vuln_status
+      when Exploit::CheckCode::Safe
+        print_error('The target is not exploitable.')
         return
+      when Exploit::CheckCode::Unknown
+        print_error('Cannot reliably check exploitability! Observe the traffic with HTTPTrace turned on and try to debug.')
+        return
+      when Exploit::CheckCode::Vulnerable
+        print_good('The target is vulnerable.')
       else
-        print_good("Target may be vulnerable...")
+        print_error('An unknown status code was returned from check_host!')
+        return
       end
 
       content_length = get_file_size

@@ -131,7 +131,6 @@ class Msf::Module::Platform
   # the string).
   #
   def self.find_portion(mod, str)
-
     # Check to see if we've built the abbreviated cache
     if (not (
           mod.const_defined?('Abbrev') and
@@ -417,6 +416,22 @@ class Msf::Module::Platform
   class Brocade < Msf::Module::Platform
     Rank = 100
     Alias = "brocade"
+  end
+
+  #
+  # MikroTik
+  #
+  class Mikrotik < Msf::Module::Platform
+    Rank = 100
+    Alias = "mikrotik"
+  end
+
+  #
+  # Arista
+  #
+  class Arista < Msf::Module::Platform
+    Rank = 100
+    Alias = "arista"
   end
 
   #

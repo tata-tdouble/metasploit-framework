@@ -23,7 +23,7 @@ class MetasploitModule < Msf::Auxiliary
           [ 'OSVDB', '98249' ],
           [ 'BID', '62902' ],
           [ 'ZDI', '13-240' ],
-          [ 'URL', 'https://h20566.www2.hp.com/portal/site/hpsc/public/kb/docDisplay/?docId=emr_na-c03943547' ]
+          [ 'URL', 'https://support.hpe.com/hpesc/public/docDisplay?docId=emr_na-c03943547' ]
         ],
       'Author'         =>
         [
@@ -31,7 +31,7 @@ class MetasploitModule < Msf::Auxiliary
           'juan vazquez' # Metasploit module
         ],
       'License'        => MSF_LICENSE,
-      'DisclosureDate' => "Oct 08 2013"
+      'DisclosureDate' => '2013-10-08'
     ))
 
     register_options(

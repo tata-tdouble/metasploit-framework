@@ -3,7 +3,9 @@ module Msf::DBManager::Import::MetasploitFramework::Zip
   # XXX: This function is stupidly long. It needs to be refactored.
   def import_msf_collateral(args={}, &block)
     data = ::File.open(args[:filename], "rb") {|f| f.read(f.stat.size)}
-    wspace = Msf::Util::DBManager.process_opts_workspace(args, framework).name
+    wspace = Msf::Util::DBManager.process_opts_workspace(args, framework)
+    args = args.clone()
+    args.delete(:workspace)
     bl = validate_ips(args[:blacklist]) ? args[:blacklist].split : []
     basedir = args[:basedir] || args['basedir'] || ::File.join(Msf::Config.data_directory, "msf")
 
@@ -57,7 +59,7 @@ module Msf::DBManager::Import::MetasploitFramework::Zip
     return 0 if bl.include? host_info[loot.at("host-id").text.to_s.strip]
     loot_info              = {}
     loot_info[:host]       = host_info[loot.at("host-id").text.to_s.strip]
-    loot_info[:workspace]  = args[:wspace]
+    loot_info[:workspace]  = wspace
     loot_info[:ctype]      = nils_for_nulls(loot.at("content-type").text.to_s.strip)
     loot_info[:info]       = nils_for_nulls(unserialize_object(loot.at("info"), allow_yaml))
     loot_info[:ltype]      = nils_for_nulls(loot.at("ltype").text.to_s.strip)
@@ -102,7 +104,7 @@ module Msf::DBManager::Import::MetasploitFramework::Zip
   # Parses task Nokogiri::XML::Element
   def parse_zip_task(task, wspace, bl, allow_yaml, btag, args, basedir, host_info, &block)
     task_info = {}
-    task_info[:workspace] = args[:wspace]
+    task_info[:workspace] = wspace
     # Should user be imported (original) or declared (the importing user)?
     task_info[:user] = nils_for_nulls(task.at("created-by").text.to_s.strip)
     task_info[:desc] = nils_for_nulls(task.at("description").text.to_s.strip)
@@ -142,7 +144,7 @@ module Msf::DBManager::Import::MetasploitFramework::Zip
       if ::File.exist?(new_task)
         ::File.unlink new_task # Delete it, and don't report it.
       else
-        report_task(task_info) # It's new, so report it.
+        msf_import_task(task_info) # It's new, so report it.
       end
       ::FileUtils.copy(task_info[:orig_path], new_task)
       yield(:msf_task, new_task) if block
@@ -163,7 +165,7 @@ module Msf::DBManager::Import::MetasploitFramework::Zip
   # XXX: Refactor so it's not quite as sanity-blasting.
   def import_msf_zip(args={}, &block)
     data = args[:data]
-    wspace = Msf::Util::DBManager.process_opts_workspace(args, framework).name
+    wspace = Msf::Util::DBManager.process_opts_workspace(args, framework)
     bl = validate_ips(args[:blacklist]) ? args[:blacklist].split : []
 
     new_tmp = ::File.join(Dir::tmpdir,"msf","imp_#{Rex::Text::rand_text_alphanumeric(4)}",@import_filedata[:zip_basename])

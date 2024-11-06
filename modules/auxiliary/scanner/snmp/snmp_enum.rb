@@ -16,10 +16,12 @@ class MetasploitModule < Msf::Auxiliary
         The default community used is "public".',
       'References'  =>
         [
-          [ 'URL', 'http://en.wikipedia.org/wiki/Simple_Network_Management_Protocol' ],
-          [ 'URL', 'http://net-snmp.sourceforge.net/docs/man/snmpwalk.html' ],
-          [ 'URL', 'http://www.nothink.org/perl/snmpcheck/' ],
-        ],
+          [ 'URL', 'https://en.wikipedia.org/wiki/Simple_Network_Management_Protocol' ],
+          [ 'URL', 'https://net-snmp.sourceforge.io/docs/man/snmpwalk.html' ],
+          [ 'URL', 'http://www.nothink.org/codes/snmpcheck/index.php' ],
+          [ 'CVE', '1999-0508' ], # Weak password
+          [ 'CVE', '1999-0517' ],
+          [ 'CVE', '1999-0516' ]        ],
       'Author'      => 'Matteo Cantoni <goony[at]nothink.org>',
       'License'     => MSF_LICENSE
     ))
@@ -865,12 +867,13 @@ class MetasploitModule < Msf::Auxiliary
       print_error("#{ip} Invalid IP Address. Check it with 'snmpwalk tool'.")
     rescue SNMP::UnsupportedVersion
       print_error("#{ip} Unsupported SNMP version specified. Select from '1' or '2c'.")
+    rescue SNMP::ParseError
+      print_error("#{ip} Encountered an SNMP parsing error while trying to enumerate the host.")
     rescue ::Interrupt
       raise $!
     rescue ::Exception => e
       print_error("Unknown error: #{e.class} #{e}")
-      elog("Unknown error: #{e.class} #{e}")
-      elog("Call stack:\n#{e.backtrace.join "\n"}")
+      elog(e)
     ensure
       disconnect_snmp
     end

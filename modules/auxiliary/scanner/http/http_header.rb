@@ -19,7 +19,7 @@ class MetasploitModule < Msf::Auxiliary
       'References'  =>
       [
         ['URL', 'http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html'],
-        ['URL', 'http://en.wikipedia.org/wiki/List_of_HTTP_header_fields']
+        ['URL', 'https://en.wikipedia.org/wiki/List_of_HTTP_header_fields']
       ],
       'License'     => MSF_LICENSE
     ))
@@ -54,7 +54,7 @@ class MetasploitModule < Msf::Auxiliary
       return
     end
 
-    # Header Names are case insensitve so convert them to upcase
+    # Header Names are case insensitive so convert them to upcase
     headers_uppercase = headers.inject({}) do |hash, keys|
       hash[keys[0].upcase] = keys[1]
       hash

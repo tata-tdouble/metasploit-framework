@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright (c) 2003-2018 CORE Security Technologies
 #
 # This software is provided under under a slightly modified version
@@ -175,7 +175,7 @@ class DCOMEXEC:
                 self.shell = RemoteShell(self.__share, (iMMC, pQuit), (iActiveView, pExecuteShellCommand), smbConnection)
 
             self.shell.onecmd(self.__command)
-        except  (Exception, KeyboardInterrupt), e:
+        except  (Exception, KeyboardInterrupt) as e:
             if self.shell is not None:
                 self.shell.do_exit('')
             logging.error(str(e))
@@ -301,7 +301,7 @@ def run(args):
         return
 
     _msf_impacket.pre_run_hook(args)
-    executer = DCOMEXEC(args['COMMAND'], args['SMBUser'], args['SMBPass'], args['SMBDomain'], 
+    executer = DCOMEXEC(args['COMMAND'], args['SMBUser'], args['SMBPass'], args['SMBDomain'],
                         share='ADMIN$', noOutput=args['OUTPUT'] != 'true', dcomObject=args['OBJECT'])
     executer.run(args['rhost'])
 

